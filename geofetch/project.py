@@ -3,7 +3,8 @@
 Layout:
     <dir>/project.json      objective, period, AOI reference, project CRS
     <dir>/aoi/aoi.geojson   AOI as saved at init (WGS84, dissolved)
-    <dir>/plans/<id>.json   acquisition plans (approved or not)
+    <dir>/requests/<id>.json what was asked, the needs, the chosen sources and their plan ids
+    <dir>/plans/<id>.json   one acquisition plan per source (proposed → approved → running → complete/partial)
     <dir>/catalog/          static STAC catalogue of acquired assets (phase 2)
     <dir>/.cache/           catalogue search pages and HEAD sizes; safe to delete
 """
@@ -35,8 +36,7 @@ class ProjectMeta:
     project_epsg: int
     created: str
     format_version: int = FORMAT_VERSION
-    template: str | None = None  # objective template id (geofetch.objectives)
-    requirements: list[dict] = field(default_factory=list)  # Requirement.to_dict() per data need
+    country_iso3: str | None = None  # looked up once from the AOI centroid; used by per-country URL templates
 
 
 class Project:
@@ -77,7 +77,7 @@ class Project:
         if end < start:
             raise ValueError("end date is before start date")
         aoi = load_aoi(aoi_source, name)
-        for d in ("aoi", "plans", "catalog", ".cache"):
+        for d in ("aoi", "plans", "requests", "catalog", ".cache"):
             (root / d).mkdir(parents=True, exist_ok=True)
         gpd.GeoDataFrame({"name": [name]}, geometry=[aoi.geometry], crs="EPSG:4326").to_file(root / "aoi" / "aoi.geojson", driver="GeoJSON")
         meta = ProjectMeta(
@@ -116,3 +116,26 @@ class Project:
 
     def list_plans(self) -> list[str]:
         return sorted(p.stem for p in self.plans_dir.glob("*.json"))
+
+    # -- requests
+    @property
+    def requests_dir(self) -> Path:
+        return self.root / "requests"
+
+    def save_request(self, req_id: str, data: dict) -> Path:
+        self.requests_dir.mkdir(exist_ok=True)
+        f = self.requests_dir / f"{req_id}.json"
+        f.write_text(json.dumps(data, indent=1, default=str))
+        return f
+
+    def list_requests(self) -> list[dict]:
+        return [json.loads(f.read_text()) for f in sorted(self.requests_dir.glob("*.json"))] if self.requests_dir.exists() else []
+
+    # -- caches
+    def size_cache(self) -> dict[str, int]:
+        f = self.cache_dir / "asset_sizes.json"
+        return json.loads(f.read_text()) if f.exists() else {}
+
+    def save_size_cache(self, sizes: dict[str, int]) -> None:
+        self.cache_dir.mkdir(exist_ok=True)
+        (self.cache_dir / "asset_sizes.json").write_text(json.dumps(sizes))

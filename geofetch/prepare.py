@@ -21,8 +21,8 @@ def build_vrts(cat: Catalog) -> list[Path]:
         window = it["properties"].get("geofetch:window", "unknown")
         for band, a in it["assets"].items():
             p = (cat.items_dir / a["href"]).resolve()
-            if p.exists():
-                groups.setdefault((window, band), []).append(p)
+            if p.exists() and p.suffix == ".tif":
+                groups.setdefault((f"{it['properties'].get('geofetch:source', 'x')}_{window}", band), []).append(p)
     out_dir = cat.root / "data" / "vrt"
     out_dir.mkdir(parents=True, exist_ok=True)
     written = []
@@ -31,6 +31,16 @@ def build_vrts(cat: Catalog) -> list[Path]:
         subprocess.run(["gdalbuildvrt", "-q", "-overwrite", str(vrt), *map(str, files)], check=True)
         written.append(vrt)
     return written
+
+
+def vector_files(cat: Catalog) -> list[Path]:
+    out = []
+    for iid in sorted(cat.item_ids()):
+        for a in cat.load_item(iid)["assets"].values():
+            p = (cat.items_dir / a["href"]).resolve()
+            if p.exists() and p.suffix == ".gpkg":
+                out.append(p)
+    return out
 
 
 def open_in_qgis(files: list[Path]) -> bool:

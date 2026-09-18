@@ -76,3 +76,17 @@ Phases 1–2 of the plan in the 2026-09-17 session are built and tested (`README
 - Byte counting inside the parallel reader was dropped (GDAL debug output does not reach rasterio's logger from worker threads); sizes are estimated from HEAD × tile fraction + 2 MB, calibrated in E2b.
 
 Phase 3 (recipe re-run on a second machine, `import` of an existing folder) is not built. E6 (user interviews) is the remaining kill-criterion.
+
+## Generic engine (2026-09-18)
+
+Rebuilt as a registry-driven engine (see README): 13 sources / 4 drivers / 9 ask rules. Generality check — five asks through identical code, no per-ask logic:
+
+| ask | rules matched | needs → sources |
+|---|---|---|
+| flood in Chitradurga in August | flood | elevation→DEM GLO-30, sar/pair→S1 RTC, water→JRC GSW, optical/pair→S2, population→WorldPop, hydrography/transport/buildings→OSM |
+| agricultural drought, 2026 monsoon | drought, rainfall | precipitation→CHIRPS, vegetation→S2, landcover→WorldCover, soil_moisture→**unmet (no source registered)**, sar→S1 RTC |
+| urban expansion over five years | urban | builtup/series→IO annual LULC, optical→S2, population→WorldPop, buildings/transport→OSM |
+| reservoir water spread | water_bodies | water/series→S2 (alt S1 RTC), water/static→JRC GSW |
+| road accessibility after landslides | access, terrain | transport→OSM roads, elevation→DEM, population→WorldPop |
+
+Flood ask, Chitradurga, `--event 2026-08-15`: 7 sources, 50 files, ≈3.5 GB estimated; verdicts: radar pre/post feasible on one orbit (63 descending, Aug 3 / Aug 15, 95 % coverage); optical pre-window infeasible (61 % expected clear from all 38 scenes), post needs a 9-scene composite; buildings query refused (AOI 8,448 km² > 2,000 km² cap). Execution results appended below when complete.

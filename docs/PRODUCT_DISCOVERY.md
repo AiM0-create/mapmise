@@ -1,6 +1,6 @@
 # Product Discovery: Project-Aware Geospatial Data Acquisition
 
-Status: discovery complete, **qualified GO** on a narrowed scope (see §21). E1 and E2 executed 2026-09-15; prototype phases 1–2 built 2026-09-18 — see `docs/EXPERIMENTS.md` and `README.md`.
+Status: discovery complete, **qualified GO** (see §21). E1 and E2 executed 2026-09-15. **Positioning revised 2026-09-18 (§9a)** after the owner's clarification; the alpha engine described in `README.md` implements that revised shape.
 Date: 2026-09-15. Environment inspected: empty repo; host has Python 3.14, GDAL 3.12.2, QGIS 4.2.2, Node 22; no aria2/rclone/EODAG installed.
 
 Evidence for claims below comes from (a) live probes against provider APIs run today (scripts in `docs/probes/`, results quoted inline), (b) PyPI metadata, (c) primary docs and repos linked in §22. Where something is an inference rather than a measurement it is marked *(inference)*.
@@ -149,6 +149,17 @@ Positioning (answering the five options): **(4) narrowed** — *"a project-first
 Wedge statement: *You describe the analysis and the area; it tells you exactly which scenes/bands you need and why, what's already on disk, how big the rest is, then fetches and prepares only that — and writes down how, so you or a reviewer can re-run it.*
 
 First user: Indian/regional agri-drought and flood researchers using QGIS + Python on laptops with metered connectivity (the founder's context; a real, underserved segment where cloud-first is not the default).
+
+### 9a. Revised positioning (2026-09-18)
+
+The owner's intent is broader than §9: not an EO acquisition tool but **a local data-sourcing engine for open geospatial data** — *"I want to do X analysis of Y area"* → the engine works out what data that needs (raster and vector, imagery and layers), finds it across the open community's catalogues and APIs, fetches only the area, organises and dates it, and documents it. No processing; analysis-ready open products only. The convenience of the boring pre-analysis day is the product, for experts and non-experts alike.
+
+Consequences, and what changed in the design:
+- **No workflow code.** Domain knowledge lives in two editable data files: a *source registry* (datasets described by what they are — theme, shape, resolution, licence, access) and *ask rules* (words → generic needs). A "flood" is a rule, not a module. Five different asks (flood, drought, urban, reservoir, road access) resolve through the same code with zero per-ask logic.
+- **Few drivers, many sources.** Four access drivers (STAC, HTTP, Overpass, GDACS) cover the alpha's 13 sources and, by construction, most of the open ecosystem. Breadth is added by editing YAML.
+- **Planners by data shape**, not by analysis: dated scenes (optical per tile / radar per orbit), static layers, whole-file series, vector queries.
+- The §17 MVP (one sensor) was the right first step because scene planning is the hardest shape; it is now one planner among four.
+- The moat is the curated registry plus the community that grows it — the thing a generic AI cannot invent correctly.
 
 ## 10. Proposed architecture
 

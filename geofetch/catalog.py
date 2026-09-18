@@ -18,10 +18,10 @@ from pathlib import Path
 import pystac
 from shapely.geometry import mapping
 
-from geofetch.discovery.stac import NormalisedItem
-from geofetch.transfer.window import WindowResult, sha256_of
+from geofetch.transfer.window import sha256_of
 
 COG_TYPE = "image/tiff; application=geotiff; profile=cloud-optimized"
+GPKG_TYPE = "application/geopackage+sqlite3"
 
 
 def multihash_sha256(hex_digest: str) -> str:
@@ -60,45 +60,31 @@ class Catalog:
         for iid in sorted(self.item_ids()):
             it = self.load_item(iid)
             p = it["properties"]
-            rows.append({"id": iid, "window": p.get("geofetch:window"), "tile": p.get("grid:code"), "date": p["datetime"][:10],
-                         "cloud": p.get("eo:cloud_cover"), "bands": sorted(it["assets"]), "plan": p.get("geofetch:plan"),
-                         "requirement": p.get("geofetch:requirement")})
+            rows.append({"id": iid, "source": p.get("geofetch:source"), "window": p.get("geofetch:window"), "group": p.get("geofetch:group"),
+                         "date": (p.get("datetime") or "")[:10], "assets": sorted(it["assets"]), "plan": p.get("geofetch:plan"),
+                         "themes": p.get("geofetch:themes", [])})
         return rows
 
     # -- write
-    def add_item(self, src: NormalisedItem, aoi_geom, band_results: dict[str, WindowResult], plan_id: str, window: str,
-                 requirement: str | None = None) -> Path:
+    def add(self, item_id: str, geometry, when: datetime | None, properties: dict, assets: dict[str, dict]) -> Path:
+        """Record one item. assets: key -> {path, media_type, size, sha256, source_href, seconds?}. Merges with an existing item."""
         self.items_dir.mkdir(parents=True, exist_ok=True)
-        geom = src.geometry.intersection(aoi_geom)
-        first = next(iter(band_results.values()))
-        item = pystac.Item(
-            id=src.id, geometry=mapping(geom), bbox=list(geom.bounds), datetime=src.datetime,
-            properties={
-                "eo:cloud_cover": src.cloud_cover, "grid:code": src.tile, "sat:relative_orbit": src.relative_orbit,
-                "sat:orbit_state": src.orbit_state, "proj:epsg": first.epsg,
-                "geofetch:plan": plan_id, "geofetch:window": window, "geofetch:requirement": requirement,
-                "geofetch:source": {"provider": src.provider, "collection": src.collection, "id": src.id},
-                "geofetch:acquired": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-            },
-        )
-        for band, r in band_results.items():
-            item.add_asset(band, pystac.Asset(
-                href=self._rel(r.output),
-                media_type=COG_TYPE, roles=["data"],
-                extra_fields={"eo:bands": [{"name": band}], "file:size": r.output_bytes, "file:checksum": multihash_sha256(r.sha256),
-                              "proj:shape": [r.height, r.width], "geofetch:source_href": src.assets[band]["href"],
-                              "geofetch:transfer_seconds": round(r.seconds, 1)},
-            ))
-        item.stac_extensions = [
-            "https://stac-extensions.github.io/eo/v1.1.0/schema.json",
-            "https://stac-extensions.github.io/file/v2.1.0/schema.json",
-            "https://stac-extensions.github.io/projection/v1.1.0/schema.json",
-        ]
+        item = pystac.Item(id=item_id, geometry=mapping(geometry), bbox=list(geometry.bounds), datetime=when or datetime.now(timezone.utc),
+                           properties={**properties, "geofetch:acquired": datetime.now(timezone.utc).isoformat(timespec="seconds")})
+        for key, a in assets.items():
+            extra = {"file:size": a["size"], "file:checksum": multihash_sha256(a["sha256"]), "geofetch:source_href": a.get("source_href")}
+            if a.get("seconds") is not None:
+                extra["geofetch:transfer_seconds"] = round(a["seconds"], 1)
+            if a.get("shape"):
+                extra["proj:shape"] = a["shape"]
+            item.add_asset(key, pystac.Asset(href=self._rel(Path(a["path"])), media_type=a["media_type"], roles=["data"], extra_fields=extra))
+        item.stac_extensions = ["https://stac-extensions.github.io/file/v2.1.0/schema.json",
+                                "https://stac-extensions.github.io/projection/v1.1.0/schema.json"]
         d = item.to_dict(include_self_link=False)
-        existing = self.load_item(src.id)
-        if existing:  # keep bands acquired earlier (possibly by another plan)
+        existing = self.load_item(item_id)
+        if existing:  # keep assets acquired earlier (possibly by another plan)
             d["assets"] = {**existing["assets"], **d["assets"]}
-        f = self.items_dir / f"{src.id}.json"
+        f = self.items_dir / f"{item_id}.json"
         f.write_text(json.dumps(d, indent=1))
         self._write_root()
         return f

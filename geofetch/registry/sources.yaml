@@ -1,0 +1,252 @@
+# geofetch source registry — open geospatial datasets described by WHAT THEY ARE, never by what they are for.
+#
+# Community-editable. One entry per dataset. Required keys are validated by geofetch/registry/__init__.py.
+#   themes        controlled vocabulary (see THEMES in registry/__init__.py)
+#   kind          raster | vector | event
+#   shape         layer  = one static dataset (fetch all tiles intersecting the AOI)
+#                 series = dated scenes (planner picks scenes per time window; also serves before/after pairs)
+#                 query  = vector query against a live API, clipped to the AOI
+#                 events = an event feed used to resolve "the flood in X" to a date
+#   temporal      {type: static|series, from: ..., to: ... (null = ongoing), revisit_days: ...}
+#   coverage      global | list of ISO3 country codes | [minx, miny, maxx, maxy]
+#   analysis_ready true if it can be used directly (no calibration/processing needed)
+#   access        driver-specific. drivers: stac | http | overpass | gdacs
+
+- id: sentinel-2-l2a
+  name: Sentinel-2 L2A surface reflectance
+  themes: [optical, vegetation, water]
+  kind: raster
+  shape: series
+  resolution_m: 10
+  temporal: {type: series, from: "2015-07", to: null, revisit_days: 5}
+  coverage: global
+  license: "Copernicus open data (free, attribution)"
+  analysis_ready: true
+  cloud_dependent: true
+  description: 10 m optical bands; red/NIR for vegetation indices, green/SWIR for water indices.
+  access:
+    driver: stac
+    provider: earth_search
+    collection: sentinel-2-l2a
+    assets: {red: red, green: green, blue: blue, nir: nir, swir16: swir16, swir22: swir22, scl: scl}
+    default_assets: [red, nir]
+    theme_assets: {vegetation: [red, nir], water: [green, nir, swir16], optical: [red, green, blue, nir]}
+    group_by: grid:code          # MGRS tile — the optical planner selects per tile
+
+- id: sentinel-1-rtc
+  name: Sentinel-1 radiometrically terrain-corrected backscatter (VV/VH)
+  themes: [sar, water]
+  kind: raster
+  shape: series
+  resolution_m: 10
+  temporal: {type: series, from: "2014-10", to: null, revisit_days: 6}
+  coverage: global
+  license: "Copernicus open data (free, attribution)"
+  analysis_ready: true
+  cloud_dependent: false
+  description: Analysis-ready C-band radar backscatter; sees through cloud; low VV backscatter marks open water.
+  access:
+    driver: stac
+    provider: planetary_computer
+    collection: sentinel-1-rtc
+    assets: {vv: vv, vh: vh}
+    default_assets: [vv, vh]
+    group_by: sat:relative_orbit  # the radar planner keeps the same orbit across windows
+
+- id: cop-dem-glo-30
+  name: Copernicus DEM GLO-30
+  themes: [elevation]
+  kind: raster
+  shape: layer
+  resolution_m: 30
+  temporal: {type: static, from: "2021", to: "2021"}
+  coverage: global
+  license: "Copernicus DEM licence (free, attribution)"
+  analysis_ready: true
+  description: 30 m global digital surface model.
+  access:
+    driver: stac
+    provider: planetary_computer
+    collection: cop-dem-glo-30
+    assets: {elevation: data}
+    default_assets: [elevation]
+
+- id: esa-worldcover-2021
+  name: ESA WorldCover 2021
+  themes: [landcover, builtup, vegetation]
+  kind: raster
+  shape: layer
+  resolution_m: 10
+  temporal: {type: static, from: "2021", to: "2021"}
+  coverage: global
+  license: "CC BY 4.0"
+  analysis_ready: true
+  description: 10 m land cover, 11 classes (tree, cropland, built-up, water, ...).
+  access:
+    driver: stac
+    provider: planetary_computer
+    collection: esa-worldcover
+    assets: {landcover: map}
+    default_assets: [landcover]
+    query: {"esa_worldcover:product_version": {"eq": "2.0.0"}}
+
+- id: jrc-gsw-occurrence
+  name: JRC Global Surface Water (1984–2020)
+  themes: [water]
+  kind: raster
+  shape: layer
+  resolution_m: 30
+  temporal: {type: static, from: "1984", to: "2020"}
+  coverage: global
+  license: "CC BY 4.0"
+  analysis_ready: true
+  description: Water occurrence, seasonality and recurrence — the baseline of where water normally is.
+  access:
+    driver: stac
+    provider: planetary_computer
+    collection: jrc-gsw
+    assets: {occurrence: occurrence, seasonality: seasonality, recurrence: recurrence}
+    default_assets: [occurrence, seasonality]
+
+- id: io-lulc-annual
+  name: Impact Observatory annual land use / land cover
+  themes: [landcover, builtup]
+  kind: raster
+  shape: series
+  resolution_m: 10
+  temporal: {type: series, from: "2017", to: null, revisit_days: 365}
+  coverage: global
+  license: "CC BY 4.0"
+  analysis_ready: true
+  cloud_dependent: false
+  description: Yearly 10 m land use/land cover from Sentinel-2 (9 classes); good for year-on-year change.
+  access:
+    driver: stac
+    provider: planetary_computer
+    collection: io-lulc-annual-v02
+    assets: {landcover: data}
+    default_assets: [landcover]
+    group_by: proj:epsg
+
+- id: worldpop-constrained-2020
+  name: WorldPop constrained population 2020 (100 m)
+  themes: [population]
+  kind: raster
+  shape: layer
+  resolution_m: 100
+  temporal: {type: static, from: "2020", to: "2020"}
+  coverage: global
+  license: "CC BY 4.0"
+  analysis_ready: true
+  description: People per 100 m cell, constrained to settled areas; per-country GeoTIFF.
+  access:
+    driver: http
+    mode: window                     # GeoTIFF over HTTP — only the AOI window is read
+    url: "https://data.worldpop.org/GIS/Population/Global_2000_2020_Constrained/2020/BSGM/{iso3}/{iso3_lower}_ppp_2020_constrained.tif"
+    assets: {population: file}
+
+- id: chirps-monthly
+  name: CHIRPS v2.0 monthly precipitation (0.05°)
+  themes: [precipitation]
+  kind: raster
+  shape: series
+  resolution_m: 5000
+  temporal: {type: series, from: "1981-01", to: null, revisit_days: 30}
+  coverage: [-180, -50, 180, 50]
+  license: "Public domain (CHC/UCSB)"
+  analysis_ready: true
+  cloud_dependent: false
+  description: Monthly rainfall totals in mm; the standard long-record product for drought monitoring.
+  access:
+    driver: http
+    mode: file_per_window            # one global file per month, downloaded, decompressed, clipped
+    url: "https://data.chc.ucsb.edu/products/CHIRPS-2.0/global_monthly/tifs/chirps-v2.0.{yyyy}.{mm}.tif.gz"
+    compression: gz
+    assets: {precipitation: file}
+
+- id: geoboundaries-adm2
+  name: geoBoundaries ADM2 (districts)
+  themes: [boundaries]
+  kind: vector
+  shape: layer
+  resolution_m: null
+  temporal: {type: static, from: "2023", to: "2023"}
+  coverage: global
+  license: "CC BY 4.0"
+  analysis_ready: true
+  description: Open administrative boundaries, district level.
+  access:
+    driver: http
+    mode: vector
+    url: "https://www.geoboundaries.org/api/current/gbOpen/{iso3}/ADM2/"
+    url_key: gjDownloadURL          # the API returns JSON; this key holds the GeoJSON URL
+    assets: {boundaries: file}
+
+- id: osm-roads
+  name: OpenStreetMap roads (motorway–tertiary)
+  themes: [transport]
+  kind: vector
+  shape: query
+  resolution_m: null
+  temporal: {type: static, from: "live", to: null}
+  coverage: global
+  license: "ODbL"
+  analysis_ready: true
+  description: Road network from OSM via Overpass.
+  access:
+    driver: overpass
+    query: 'way["highway"~"^(motorway|trunk|primary|secondary|tertiary)$"]({bbox});'
+    geometry: line
+    assets: {roads: file}
+    max_area_km2: 50000
+
+- id: osm-buildings
+  name: OpenStreetMap buildings
+  themes: [buildings, builtup]
+  kind: vector
+  shape: query
+  resolution_m: null
+  temporal: {type: static, from: "live", to: null}
+  coverage: global
+  license: "ODbL"
+  analysis_ready: true
+  description: Building footprints from OSM via Overpass; heavy for large areas.
+  access:
+    driver: overpass
+    query: 'way["building"]({bbox});'
+    geometry: polygon
+    assets: {buildings: file}
+    max_area_km2: 2000
+
+- id: osm-waterways
+  name: OpenStreetMap rivers, streams and canals
+  themes: [water, hydrography]
+  kind: vector
+  shape: query
+  resolution_m: null
+  temporal: {type: static, from: "live", to: null}
+  coverage: global
+  license: "ODbL"
+  analysis_ready: true
+  description: Waterway centrelines from OSM via Overpass.
+  access:
+    driver: overpass
+    query: 'way["waterway"~"^(river|stream|canal)$"]({bbox});'
+    geometry: line
+    assets: {waterways: file}
+    max_area_km2: 50000
+
+- id: gdacs-events
+  name: GDACS disaster events
+  themes: [events]
+  kind: event
+  shape: events
+  resolution_m: null
+  temporal: {type: series, from: "2000", to: null, revisit_days: 1}
+  coverage: global
+  license: "Open (GDACS/JRC)"
+  analysis_ready: true
+  description: Floods, cyclones, earthquakes, droughts with dates, alert level and location.
+  access:
+    driver: gdacs
+    types: {flood: FL, cyclone: TC, earthquake: EQ, drought: DR, wildfire: WF}

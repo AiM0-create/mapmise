@@ -1,5 +1,6 @@
-"""Deterministic planner for a Sentinel-2 time series over an AOI.
+"""Optical scene planner: cloud-aware, per tile, per time window.
 
+Works for any registry source with `group_by` = a tile id and `eo:cloud_cover` metadata.
 Given normalised catalogue items, an AOI and temporal windows:
   * select the best-available scene per (window, tile);
   * estimate how many scenes a composite needs to reach a clear-coverage target;
@@ -21,7 +22,7 @@ from shapely.geometry.base import BaseGeometry
 from shapely.ops import transform, unary_union
 
 from geofetch.aoi import AOI, EQUAL_AREA_CRS, to_equal_area
-from geofetch.discovery.stac import NormalisedItem
+from geofetch.drivers.stac import Item as NormalisedItem
 
 
 @dataclass(frozen=True)
@@ -106,8 +107,7 @@ class WindowReport:
 class Plan:
     aoi_name: str
     aoi_km2: float
-    provider: str
-    collection: str
+    source: str
     bands: list[str]
     cloud_max: float
     min_coverage: float
@@ -119,6 +119,16 @@ class Plan:
 
     def to_dict(self) -> dict:
         return asdict(self)
+
+    def acquire(self, mode: str = "single") -> list[tuple[str, str]]:
+        """(window, item_id) pairs for the chosen mode."""
+        pairs = set()
+        for s in self.selections:
+            if mode == "composite":
+                pairs |= {(s.window, c.item_id) for c in s.composite}
+            elif s.selected:
+                pairs.add((s.window, s.selected.item_id))
+        return sorted(pairs)
 
     def selected_ids(self, mode: str = "single") -> list[str]:
         if mode == "composite":
@@ -139,7 +149,7 @@ def _tile_extent(items: list[NormalisedItem]) -> tuple[BaseGeometry, str]:
     return unary_union([to_equal_area(it.geometry) for it in items]), "footprint-union"
 
 
-def plan_s2_timeseries(
+def plan_optical(
     aoi: AOI,
     items: list[NormalisedItem],
     windows: list[Window],
@@ -150,17 +160,16 @@ def plan_s2_timeseries(
 ) -> Plan:
     aoi_ea = to_equal_area(aoi.geometry)
     aoi_area = aoi_ea.area
-    provider = items[0].provider if items else "?"
-    collection = items[0].collection if items else "?"
+    source = items[0].source_id if items else "?"
 
     # 1. keep items whose footprint actually intersects the AOI (bbox search over-returns)
-    items = [it for it in items if it.tile and it.geometry.intersects(aoi.geometry)]
+    items = [it for it in items if it.group and it.geometry.intersects(aoi.geometry)]
     fp_ea = {it.id: to_equal_area(it.geometry) for it in items}
 
     # 2. tiles: extent, AOI intersection, exclusive share
     by_tile: dict[str, list[NormalisedItem]] = defaultdict(list)
     for it in items:
-        by_tile[it.tile].append(it)
+        by_tile[it.group].append(it)
     tiles: list[TileInfo] = []
     tile_aoi: dict[str, BaseGeometry] = {}
     covered = None
@@ -182,13 +191,13 @@ def plan_s2_timeseries(
     selections: list[Selection] = []
     reports: list[WindowReport] = []
     for w in windows:
-        w_items = [it for it in items if it.tile in tile_aoi and w.contains(it.datetime)]
+        w_items = [it for it in items if it.group in tile_aoi and w.contains(it.datetime)]
         sel_fps: list[BaseGeometry] = []
         single_clear = comp_clear = 0.0
         over = missing = comp_n = 0
         for t in tiles:
             cands = []
-            for it in (x for x in w_items if x.tile == t.tile):
+            for it in (x for x in w_items if x.group == t.tile):
                 cov = fp_ea[it.id].intersection(tile_aoi[t.tile]).area / tile_aoi[t.tile].area
                 cc = it.cloud_cover if it.cloud_cover is not None else 100.0
                 cands.append(Candidate(it.id, it.date, cc, cov, cov * (1 - cc / 100), it.relative_orbit))
@@ -236,7 +245,7 @@ def plan_s2_timeseries(
         ))
 
     explanations = [
-        f"{collection} on {provider}: 10 m optical; bands {', '.join(bands)}.",
+        f"{source}: optical scenes, bands {', '.join(bands)}.",
         f"AOI intersects {len(tiles)} MGRS tiles; one scene per tile per window is the minimum for a complete mosaic.",
         f"Selection rule per tile and window: maximise footprint coverage × (1 − cloud cover). "
         f"The {cloud_max:.0f}% cloud threshold is advisory: the best available scene is proposed even when it exceeds it, and flagged.",
@@ -244,5 +253,5 @@ def plan_s2_timeseries(
         "(assumes scene-level cloud percentages are independent — an estimate, not a pixel mask).",
         "Naive comparison shows what a plain 'cloud ≤ threshold' catalogue filter would have returned.",
     ]
-    return Plan(aoi.name, aoi.area_km2, provider, collection, list(bands), cloud_max, min_coverage, clear_target,
+    return Plan(aoi.name, aoi.area_km2, source, list(bands), cloud_max, min_coverage, clear_target,
                 tiles, selections, reports, explanations)

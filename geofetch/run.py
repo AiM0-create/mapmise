@@ -1,8 +1,7 @@
-"""Execute an approved plan: fetch selected assets into the project and record them in the catalogue.
+"""Generic executor: acquire every entry of a plan, by driver, into the project; record in the catalogue.
 
-Resumable: assets already present in the catalogue (file exists with the recorded size)
-are skipped. Every transfer is appended to the plan file under `execution`, so the plan
-file becomes the acquisition record.
+Resumable: assets already recorded (file present with the recorded size) are skipped.
+Each transfer is appended to the plan file under `execution`, so the plan is the record.
 """
 
 from __future__ import annotations
@@ -11,86 +10,90 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
-from geofetch.catalog import Catalog
-from geofetch.discovery.stac import NormalisedItem, Query, search
+from shapely.geometry import shape
+
+from geofetch.catalog import COG_TYPE, GPKG_TYPE, Catalog
+from geofetch.drivers import http as http_driver
+from geofetch.drivers import overpass as overpass_driver
+from geofetch.drivers.signing import sign
 from geofetch.project import Project
-from geofetch.transfer.window import fetch_window
+from geofetch.registry import Source, load_sources
+from geofetch.transfer.window import fetch_window, sha256_of
 
 
-def items_for_plan(project: Project, plan: dict) -> dict[str, NormalisedItem]:
-    """Re-read the catalogue metadata the plan was built from (cached search)."""
-    q = plan["query"]["query"]
-    query = Query(q["provider"], q["collection"], tuple(q["bbox"]), q["start"], q["end"], tuple(q["bands"]))
-    items, record = search(query, project.cache_dir)
-    if record["searched_at"] != plan["query"]["searched_at"]:
-        print("warning: search cache was refreshed after this plan was made; item metadata may differ")
-    return {it.id: it for it in items}
+def gaps(project: Project, plan: dict) -> list[dict]:
+    cat = Catalog(project.root, project.meta.name)
+    return [{"window": e["window"], "item": e["item_id"], "asset": k}
+            for e in plan["acquire"] for k in e["assets"] if not cat.has_asset(e["item_id"], k)]
 
 
-def targets(plan: dict, mode: str) -> list[tuple[str, str]]:
-    """(window, item_id) pairs to acquire for the chosen mode."""
-    out = []
-    for s in plan["selections"]:
-        if mode == "composite":
-            out += [(s["window"], c["item_id"]) for c in s["composite"]]
-        elif s["selected"]:
-            out.append((s["window"], s["selected"]["item_id"]))
-    return sorted(set(out))
+def _out(project: Project, source: Source, e: dict, key: str, ext: str) -> Path:
+    return project.root / "data" / source.id / e["window"] / f"{e['item_id']}_{key}{ext}"
 
 
-def output_path(project: Project, collection: str, window: str, item_id: str, band: str) -> Path:
-    return project.root / "data" / collection / window / f"{item_id}_{band}.tif"
+def _record(project: Project, plan: dict, entry: dict) -> None:
+    plan.setdefault("execution", {"started": datetime.now(timezone.utc).isoformat(timespec="seconds"), "transfers": []})
+    plan["execution"]["transfers"].append({**entry, "at": datetime.now(timezone.utc).isoformat(timespec="seconds")})
+    project.save_plan(plan["id"], plan)
 
 
-def execute(project: Project, plan: dict, mode: str = "single", threads: int = 12,
-            progress: Callable[[str], None] = print) -> dict:
-    items = items_for_plan(project, plan)
+def execute(project: Project, plan: dict, threads: int = 12, progress: Callable[[str], None] = print) -> dict:
+    source = load_sources()[plan["source"]]
     cat = Catalog(project.root, project.meta.name)
     aoi = project.aoi()
-    bands = plan["bands"]
-    todo = targets(plan, mode)
-    ex = plan.setdefault("execution", {"mode": mode, "started": datetime.now(timezone.utc).isoformat(timespec="seconds"), "transfers": []})
+    epsg = project.meta.project_epsg
+    props_base = {"geofetch:source": source.id, "geofetch:plan": plan["id"], "geofetch:themes": [n["theme"] for n in plan["needs"]],
+                  "geofetch:licence": source.license}
+    done = skipped = failed = 0
     plan["status"] = "running"
     project.save_plan(plan["id"], plan)
+    item_geoms = {}
+    if plan["kind"] in ("scenes", "layer") and source.driver == "stac":  # footprints from the cached search, for the catalogue
+        from geofetch.drivers import stac as stac_driver
+        q = plan["query"]["query"]
+        query = stac_driver.Query(q["source_id"], q["provider"], q["collection"], tuple(q["bbox"]), q["start"], q["end"], tuple(q["assets"]), q.get("extra", {}))
+        for it, _ in [stac_driver.search(source, query, project.cache_dir)]:
+            item_geoms = {i.id: i.geometry for i in it}
 
-    done = skipped = failed = 0
-    for i, (window, iid) in enumerate(todo, 1):
-        it = items[iid]
-        results = {}
-        for band in bands:
-            if cat.has_asset(iid, band):
+    for i, e in enumerate(plan["acquire"], 1):
+        assets_done = {}
+        for key, a in e["assets"].items():
+            if cat.has_asset(e["item_id"], key):
                 skipped += 1
                 continue
-            out = output_path(project, plan["collection"], window, iid, band)
-            progress(f"[{i}/{len(todo)}] {window} {it.tile} {iid} {band} …")
+            progress(f"[{i}/{len(plan['acquire'])}] {source.id} {e['window']} {e['item_id']} {key} …")
             try:
-                r = fetch_window(it.assets[band]["href"], aoi.geometry, out, project.meta.project_epsg, threads=threads)
-            except Exception as e:  # noqa: BLE001 — record and continue; the plan file shows what failed
+                if plan["kind"] == "vector":
+                    out = _out(project, source, e, key, ".gpkg")
+                    t0 = datetime.now()
+                    if source.driver == "overpass":
+                        _, n = overpass_driver.fetch(source, aoi.geometry, out)
+                    else:
+                        http_driver.fetch_vector(source, aoi.geometry, out, project.meta.country_iso3)
+                    assets_done[key] = {"path": out, "media_type": GPKG_TYPE, "size": out.stat().st_size, "sha256": sha256_of(out),
+                                        "source_href": a["href"], "seconds": (datetime.now() - t0).total_seconds()}
+                elif plan["kind"] == "file_series" or e.get("whole_file"):
+                    local = http_driver.download_file(a["href"], project.cache_dir / "files" / Path(a["href"]).name)
+                    out = _out(project, source, e, key, ".tif")
+                    r = fetch_window(str(local), aoi.geometry, out, epsg, threads=threads)
+                    assets_done[key] = {"path": out, "media_type": COG_TYPE, "size": r.output_bytes, "sha256": r.sha256, "source_href": a["href"],
+                                        "seconds": r.seconds, "shape": [r.height, r.width]}
+                else:  # scenes / layer over HTTP range reads
+                    out = _out(project, source, e, key, ".tif")
+                    r = fetch_window(sign(a["href"]), aoi.geometry, out, epsg, threads=threads)
+                    assets_done[key] = {"path": out, "media_type": COG_TYPE, "size": r.output_bytes, "sha256": r.sha256, "source_href": a["href"],
+                                        "seconds": r.seconds, "shape": [r.height, r.width]}
+                done += 1
+                _record(project, plan, {"item": e["item_id"], "asset": key, "status": "ok", "path": str(out.relative_to(project.root)),
+                                        "bytes": assets_done[key]["size"], "sha256": assets_done[key]["sha256"], "seconds": round(assets_done[key]["seconds"], 1)})
+            except Exception as ex:  # noqa: BLE001 — record and continue; the plan shows what failed
                 failed += 1
-                ex["transfers"].append({"item": iid, "band": band, "status": "failed", "error": str(e)[:300],
-                                        "at": datetime.now(timezone.utc).isoformat(timespec="seconds")})
-                project.save_plan(plan["id"], plan)
-                continue
-            results[band] = r
-            done += 1
-            ex["transfers"].append({"item": iid, "band": band, "status": "ok", "path": str(out.relative_to(project.root)),
-                                    "bytes": r.output_bytes, "sha256": r.sha256, "seconds": round(r.seconds, 1),
-                                    "source_href": r.href, "at": datetime.now(timezone.utc).isoformat(timespec="seconds")})
-            project.save_plan(plan["id"], plan)
-        if results:
-            cat.add_item(it, aoi.geometry, results, plan["id"], window, plan.get("requirement"))
-    ex["finished"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+                _record(project, plan, {"item": e["item_id"], "asset": key, "status": "failed", "error": str(ex)[:300]})
+        if assets_done:
+            geom = item_geoms.get(e["item_id"], aoi.geometry).intersection(aoi.geometry)
+            when = datetime.fromisoformat(e["date"]).replace(tzinfo=timezone.utc) if e.get("date") and e["date"][:4].isdigit() else None
+            cat.add(e["item_id"], geom, when, {**props_base, "geofetch:window": e["window"], "geofetch:group": e.get("group")}, assets_done)
+    plan["execution"]["finished"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
     plan["status"] = "complete" if failed == 0 else "partial"
     project.save_plan(plan["id"], plan)
-    return {"fetched": done, "skipped": skipped, "failed": failed, "targets": len(todo)}
-
-
-def gaps(project: Project, plan: dict, mode: str = "single") -> list[dict]:
-    """Which (window, tile, item, band) the plan wants but the catalogue does not have."""
-    cat = Catalog(project.root, project.meta.name)
-    tile_of = {}
-    for s in plan["selections"]:
-        for c in ([s["selected"]] if s["selected"] else []) + s["composite"]:
-            tile_of[c["item_id"]] = s["tile"]
-    return [{"window": w, "tile": tile_of.get(iid), "item": iid, "band": b}
-            for w, iid in targets(plan, mode) for b in plan["bands"] if not cat.has_asset(iid, b)]
+    return {"fetched": done, "skipped": skipped, "failed": failed}
