@@ -5,6 +5,7 @@
     geofetch show <dir> [plan-id]
     geofetch run <dir> <plan-id> [--mode single|composite] [--yes] [--threads N]
     geofetch status <dir> [plan-id]
+    geofetch open <dir>            build per-month VRT mosaics and open them (+AOI) in QGIS
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from geofetch.planner.s2_timeseries import Plan, monthly_windows, plan_s2_timese
 from geofetch.project import Project
 from geofetch.run import execute, gaps, targets
 from geofetch.catalog import Catalog
+from geofetch.prepare import build_vrts, open_in_qgis
 
 
 def _gb(n: int) -> str:
@@ -158,6 +160,22 @@ def cmd_status(a: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_open(a: argparse.Namespace) -> int:
+    p = Project.load(Path(a.dir))
+    vrts = build_vrts(Catalog(p.root, p.meta.name))
+    if not vrts:
+        print("catalogue is empty; run `geofetch run` first")
+        return 1
+    print("mosaics:"); [print(f"  {v}") for v in vrts]
+    if a.no_launch:
+        return 0
+    if open_in_qgis([p.aoi_file, *vrts]):
+        print(f"launched QGIS with {len(vrts)} mosaics + AOI; static STAC catalogue: {p.catalog_dir / 'catalog.json'}")
+        return 0
+    print("qgis not found on PATH; open the files above manually")
+    return 1
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="geofetch", description="Project-first, reproducible EO data acquisition (prototype)")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -186,6 +204,10 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("status", help="what the project has, and what the latest plan still lacks")
     s.add_argument("dir"); s.add_argument("plan_id", nargs="?")
     s.set_defaults(fn=cmd_status)
+
+    s = sub.add_parser("open", help="build VRT mosaics per month/band and open them in QGIS")
+    s.add_argument("dir"); s.add_argument("--no-launch", action="store_true", help="only build the VRTs")
+    s.set_defaults(fn=cmd_open)
 
     a = ap.parse_args(argv)
     return a.fn(a)
