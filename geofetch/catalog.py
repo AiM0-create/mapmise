@@ -61,11 +61,13 @@ class Catalog:
             it = self.load_item(iid)
             p = it["properties"]
             rows.append({"id": iid, "window": p.get("geofetch:window"), "tile": p.get("grid:code"), "date": p["datetime"][:10],
-                         "cloud": p.get("eo:cloud_cover"), "bands": sorted(it["assets"]), "plan": p.get("geofetch:plan")})
+                         "cloud": p.get("eo:cloud_cover"), "bands": sorted(it["assets"]), "plan": p.get("geofetch:plan"),
+                         "requirement": p.get("geofetch:requirement")})
         return rows
 
     # -- write
-    def add_item(self, src: NormalisedItem, aoi_geom, band_results: dict[str, WindowResult], plan_id: str, window: str) -> Path:
+    def add_item(self, src: NormalisedItem, aoi_geom, band_results: dict[str, WindowResult], plan_id: str, window: str,
+                 requirement: str | None = None) -> Path:
         self.items_dir.mkdir(parents=True, exist_ok=True)
         geom = src.geometry.intersection(aoi_geom)
         first = next(iter(band_results.values()))
@@ -74,7 +76,7 @@ class Catalog:
             properties={
                 "eo:cloud_cover": src.cloud_cover, "grid:code": src.tile, "sat:relative_orbit": src.relative_orbit,
                 "sat:orbit_state": src.orbit_state, "proj:epsg": first.epsg,
-                "geofetch:plan": plan_id, "geofetch:window": window,
+                "geofetch:plan": plan_id, "geofetch:window": window, "geofetch:requirement": requirement,
                 "geofetch:source": {"provider": src.provider, "collection": src.collection, "id": src.id},
                 "geofetch:acquired": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             },

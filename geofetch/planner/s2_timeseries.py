@@ -45,6 +45,14 @@ def monthly_windows(start: date, end: date) -> list[Window]:
     return windows
 
 
+def pre_post_windows(event: date, pre_days: int = 30, post_days: int = 30, gap_days: int = 0) -> list[Window]:
+    """Two windows around an event date: [event−pre, event−gap] and [event+gap, event+post]."""
+    pre_end = date.fromordinal(event.toordinal() - gap_days)
+    post_start = date.fromordinal(event.toordinal() + gap_days)
+    return [Window("pre", date.fromordinal(pre_end.toordinal() - pre_days), pre_end),
+            Window("post", post_start, date.fromordinal(post_start.toordinal() + post_days))]
+
+
 @dataclass
 class TileInfo:
     tile: str

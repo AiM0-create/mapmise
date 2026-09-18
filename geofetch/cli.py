@@ -1,7 +1,8 @@
 """geofetch command line.
 
-    geofetch init <dir> --name --aoi --start --end [--objective]
-    geofetch plan <dir> [--collection] [--bands] [--cloud-max] [--clear-target] [--refresh]
+    geofetch init <dir> --name --aoi --start --end [--objective] [--template]
+    geofetch requirements <dir> [--template]      what the objective needs, and why
+    geofetch plan <dir> [--requirement id] [--event YYYY-MM-DD] [--collection] [--bands] [--cloud-max] [--clear-target] [--refresh]
     geofetch show <dir> [plan-id]
     geofetch run <dir> <plan-id> [--mode single|composite] [--yes] [--threads N]
     geofetch status <dir> [plan-id]
@@ -17,7 +18,8 @@ from pathlib import Path
 
 from geofetch.discovery.stac import Query, search
 from geofetch.estimate import asset_sizes, estimate
-from geofetch.planner.s2_timeseries import Plan, monthly_windows, plan_s2_timeseries
+from geofetch.objectives import TEMPLATES, resolve
+from geofetch.planner.s2_timeseries import Plan, monthly_windows, plan_s2_timeseries, pre_post_windows
 from geofetch.project import Project
 from geofetch.run import execute, gaps, targets
 from geofetch.catalog import Catalog
@@ -32,19 +34,82 @@ def cmd_init(a: argparse.Namespace) -> int:
     p = Project.init(Path(a.dir), a.name, a.objective or "", Path(a.aoi), date.fromisoformat(a.start), date.fromisoformat(a.end))
     m = p.meta
     print(f"created {p.root / 'project.json'}\n  AOI {m.aoi_area_km2:,.0f} km² from {m.aoi_source}\n  period {m.start} → {m.end}\n  project CRS EPSG:{m.project_epsg}")
+    return set_requirements(p, a.template)
+
+
+def set_requirements(p: Project, template_id: str | None) -> int:
+    """Resolve the objective to a template (explicit id wins), store its requirements, print them with reasons."""
+    tpl, matches = resolve(p.meta.objective, template_id)
+    if tpl is None:
+        if not p.meta.objective:
+            print("\nno objective given; choose a template: " + ", ".join(TEMPLATES) + "  (geofetch requirements <dir> --template <id>)")
+        elif matches:
+            print("\nobjective is ambiguous between: " + ", ".join(f"{m.template.id} ({', '.join(m.hits)})" for m in matches)
+                  + "\nchoose one: geofetch requirements <dir> --template <id>")
+        else:
+            print(f"\nno template matches the objective {p.meta.objective!r}; known templates: " + ", ".join(TEMPLATES)
+                  + "\nchoose one: geofetch requirements <dir> --template <id>")
+        return 1
+    p.meta.template = tpl.id
+    p.meta.requirements = [r.to_dict() for r in tpl.requirements]
+    p.save()
+    how = f"matched on {', '.join(matches[0].hits)}" if matches else "chosen explicitly"
+    print(f"\nobjective → {tpl.name} [{tpl.id}] ({how})")
+    for r in tpl.requirements:
+        what = f"{r.collection} {','.join(r.bands)} {r.temporal}" if r.collection else "—"
+        flag = "" if r.supported else f"   ✗ not acquirable in prototype: {r.unsupported_reason}"
+        print(f"  {r.id:16} {r.priority:11} {r.name}\n{'':18}{what}{flag}")
+        for w in r.why:
+            print(f"{'':18}• {w}")
+    for n in tpl.notes:
+        print(f"  note: {n}")
     return 0
+
+
+def cmd_requirements(a: argparse.Namespace) -> int:
+    p = Project.load(Path(a.dir))
+    if a.objective:
+        p.meta.objective = a.objective
+        p.save()
+    return set_requirements(p, a.template)
 
 
 def cmd_plan(a: argparse.Namespace) -> int:
     p = Project.load(Path(a.dir))
     aoi = p.aoi()
     start, end = p.period
-    bands = [b.strip() for b in a.bands.split(",")]
-    q = Query(a.provider, a.collection, tuple(aoi.bbox), start.isoformat(), end.isoformat(), tuple(bands))
+    # requirement supplies the defaults; explicit flags override
+    req = None
+    reqs = {r["id"]: r for r in p.meta.requirements}
+    if a.requirement:
+        if a.requirement not in reqs:
+            raise SystemExit(f"unknown requirement {a.requirement!r}; project has: {', '.join(reqs) or 'none (run geofetch requirements)'}")
+        req = reqs[a.requirement]
+    elif reqs and not (a.collection or a.bands):
+        req = next((r for r in reqs.values() if r["supported"] and r["priority"] == "required"), None) or next(iter(reqs.values()))
+    if req and not req["supported"]:
+        raise SystemExit(f"requirement {req['id']!r} is not acquirable in this prototype: {req['unsupported_reason']}")
+    provider = a.provider or (req["provider"] if req else "earth_search")
+    collection = a.collection or (req["collection"] if req else "sentinel-2-l2a")
+    bands = [b.strip() for b in a.bands.split(",")] if a.bands else (list(req["bands"]) if req else ["red", "nir"])
+    cloud_max = a.cloud_max if a.cloud_max is not None else (req["cloud_max"] if req and req["cloud_max"] is not None else 20.0)
+    temporal = req["temporal"] if req else "monthly"
+    if temporal == "pre_post":
+        if not a.event:
+            raise SystemExit(f"requirement {req['id']!r} needs an event date: --event YYYY-MM-DD")
+        windows = pre_post_windows(date.fromisoformat(a.event), a.pre_days, a.post_days)
+        start, end = windows[0].start, windows[-1].end
+    else:
+        windows = monthly_windows(start, end)
+    if req:
+        print(f"requirement {req['id']}: {req['name']}")
+    q = Query(provider, collection, tuple(aoi.bbox), start.isoformat(), end.isoformat(), tuple(bands))
     t0 = datetime.now(timezone.utc)
     items, record = search(q, p.cache_dir, refresh=a.refresh)
     print(f"catalogue: {len(items)} items ({'searched' if record['searched_at'] >= t0.isoformat(timespec='seconds') else 'cached from ' + record['searched_at']})")
-    plan = plan_s2_timeseries(aoi, items, monthly_windows(start, end), bands, a.cloud_max, a.min_coverage, a.clear_target)
+    plan = plan_s2_timeseries(aoi, items, windows, bands, cloud_max, a.min_coverage, a.clear_target)
+    if req:
+        plan.explanations = [f"Requirement '{req['id']}' ({req['priority']}) for objective template '{p.meta.template}':"] + [f"  • {w}" for w in req["why"]] + plan.explanations
 
     by_id = {it.id: it for it in items}
     frac = {t.tile: t.aoi_fraction_of_tile for t in plan.tiles}
@@ -54,7 +119,8 @@ def cmd_plan(a: argparse.Namespace) -> int:
 
     plan_id = t0.strftime("%Y%m%dT%H%M%SZ") + "-" + q.key[:6]
     data = {"id": plan_id, "created": t0.isoformat(timespec="seconds"), "status": "proposed", "query": record,
-            "params": {"cloud_max": a.cloud_max, "min_coverage": a.min_coverage, "clear_target": a.clear_target},
+            "requirement": req["id"] if req else None, "temporal": temporal, "event": a.event,
+            "params": {"cloud_max": cloud_max, "min_coverage": a.min_coverage, "clear_target": a.clear_target},
             "estimate": est, **plan.to_dict()}
     f = p.save_plan(plan_id, data)
     print_plan(plan, est, plan_id)
@@ -151,12 +217,28 @@ def cmd_status(a: argparse.Namespace) -> int:
         by_w.setdefault(r["window"], []).append(r)
     for w in sorted(by_w):
         print(f"  {w}: " + ", ".join(f"{r['tile'].replace('MGRS-', '')}[{'+'.join(r['bands'])}]" for r in by_w[w]))
-    if p.list_plans():
+    if p.meta.requirements:
+        print(f"\nobjective: {p.meta.objective or '(none)'}  [{p.meta.template}]")
+        plans = [p.load_plan(pid) for pid in p.list_plans()]
+        for r in p.meta.requirements:
+            line = f"  {r['id']:16} {r['priority']:11} "
+            if not r["supported"]:
+                print(line + f"✗ not acquirable in prototype — {r['unsupported_reason']}")
+                continue
+            mine = [pl for pl in plans if pl.get("requirement") == r["id"]]
+            if not mine:
+                print(line + f"○ no plan yet — geofetch plan {p.root} --requirement {r['id']}" + (" --event YYYY-MM-DD" if r["temporal"] == "pre_post" else ""))
+                continue
+            pl = mine[-1]
+            g = gaps(p, pl, "single")
+            n = len(targets(pl, "single")) * len(pl["bands"])
+            verdicts = ", ".join(f"{w['window']}={w['verdict'].replace('feasible-', '')}" for w in pl["windows"])
+            mark = "✓" if not g else "◐"
+            print(line + f"{mark} {n - len(g)}/{n} assets (plan {pl['id']}, {pl['status']}) · {verdicts}")
+    elif p.list_plans():
         plan = _latest_plan(p, a.plan_id)
-        for mode in ("single", "composite"):
-            g = gaps(p, plan, mode)
-            print(f"  plan {plan['id']} {mode}: {len(targets(plan, mode)) * len(plan['bands']) - len(g)} assets present, {len(g)} missing"
-                  + (" — e.g. " + ", ".join(f"{x['window']} {x['tile'].replace('MGRS-', '')} {x['band']}" for x in g[:4]) if g else ""))
+        g = gaps(p, plan, "single")
+        print(f"  plan {plan['id']}: {len(targets(plan, 'single')) * len(plan['bands']) - len(g)} assets present, {len(g)} missing")
     return 0
 
 
@@ -183,11 +265,19 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("init", help="create a project directory")
     s.add_argument("dir"); s.add_argument("--name", required=True); s.add_argument("--aoi", required=True, help="GeoJSON/GPKG/Shapefile")
     s.add_argument("--start", required=True); s.add_argument("--end", required=True); s.add_argument("--objective", default="")
+    s.add_argument("--template", help="objective template id (overrides keyword matching)")
     s.set_defaults(fn=cmd_init)
 
+    s = sub.add_parser("requirements", help="resolve the objective to data requirements (with reasons)")
+    s.add_argument("dir"); s.add_argument("--template", help="one of: " + ", ".join(TEMPLATES))
+    s.add_argument("--objective", help="set or replace the project objective text")
+    s.set_defaults(fn=cmd_requirements)
+
     s = sub.add_parser("plan", help="search the catalogue and write an acquisition plan")
-    s.add_argument("dir"); s.add_argument("--provider", default="earth_search"); s.add_argument("--collection", default="sentinel-2-l2a")
-    s.add_argument("--bands", default="red,nir"); s.add_argument("--cloud-max", type=float, default=20.0)
+    s.add_argument("dir"); s.add_argument("--requirement", help="requirement id from `geofetch requirements`")
+    s.add_argument("--event", help="event date for pre/post requirements (YYYY-MM-DD)")
+    s.add_argument("--pre-days", type=int, default=30); s.add_argument("--post-days", type=int, default=30)
+    s.add_argument("--provider"); s.add_argument("--collection"); s.add_argument("--bands"); s.add_argument("--cloud-max", type=float)
     s.add_argument("--min-coverage", type=float, default=0.9); s.add_argument("--clear-target", type=float, default=0.8)
     s.add_argument("--refresh", action="store_true", help="ignore the cached search")
     s.set_defaults(fn=cmd_plan)

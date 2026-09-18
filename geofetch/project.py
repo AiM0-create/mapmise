@@ -11,7 +11,7 @@ Layout:
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from datetime import date, datetime, timezone
 from pathlib import Path
 
@@ -35,6 +35,8 @@ class ProjectMeta:
     project_epsg: int
     created: str
     format_version: int = FORMAT_VERSION
+    template: str | None = None  # objective template id (geofetch.objectives)
+    requirements: list[dict] = field(default_factory=list)  # Requirement.to_dict() per data need
 
 
 class Project:

@@ -78,7 +78,7 @@ def execute(project: Project, plan: dict, mode: str = "single", threads: int = 1
                                     "source_href": r.href, "at": datetime.now(timezone.utc).isoformat(timespec="seconds")})
             project.save_plan(plan["id"], plan)
         if results:
-            cat.add_item(it, aoi.geometry, results, plan["id"], window)
+            cat.add_item(it, aoi.geometry, results, plan["id"], window, plan.get("requirement"))
     ex["finished"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
     plan["status"] = "complete" if failed == 0 else "partial"
     project.save_plan(plan["id"], plan)
