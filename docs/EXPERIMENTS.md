@@ -65,3 +65,14 @@ Design consequences for `TransferEngine` (supersedes PRODUCT_DISCOVERY §13 deta
 
 ## Not yet run
 E3 reproducibility (needs a second machine / GDAL version), E4 gap analysis on real folders, E5 intent parsing (LLM deliberately excluded for now), E6 user interviews (owner's task), E7 Sentinel-1 pairing on MPC RTC.
+
+## Prototype status (2026-09-18)
+
+Phases 1–2 of the plan in the 2026-09-17 session are built and tested (`README.md`):
+
+- `init / plan / show / run / status` CLI; project store; cached discovery; planner with per-window verdicts; HEAD-based estimate; parallel windowed fetch → AOI-clipped COG in the project CRS; static STAC catalogue with sha256; resumable execution recorded in the plan file.
+- Verified: windowed output is pixel-identical to the full download on the source grid (gdalwarp `-crop_to_cutline` without `-tap` resamples, which is why the E2 clips differed from a raw read; the executor reads on the source grid and never resamples unless the project CRS differs).
+- Chitradurga, June 2026, 30 km box: plan 1 s (cached), run 32 s for 4 assets, rerun transfers nothing, pystac resolves every href, QGIS-readable catalogue.
+- Byte counting inside the parallel reader was dropped (GDAL debug output does not reach rasterio's logger from worker threads); sizes are estimated from HEAD × tile fraction + 2 MB, calibrated in E2b.
+
+Phase 3 (recipe re-run on a second machine, `import` of an existing folder) is not built. E6 (user interviews) is the remaining kill-criterion.

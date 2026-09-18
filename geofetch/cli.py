@@ -3,6 +3,8 @@
     geofetch init <dir> --name --aoi --start --end [--objective]
     geofetch plan <dir> [--collection] [--bands] [--cloud-max] [--clear-target] [--refresh]
     geofetch show <dir> [plan-id]
+    geofetch run <dir> <plan-id> [--mode single|composite] [--yes] [--threads N]
+    geofetch status <dir> [plan-id]
 """
 
 from __future__ import annotations
@@ -16,6 +18,8 @@ from geofetch.discovery.stac import Query, search
 from geofetch.estimate import asset_sizes, estimate
 from geofetch.planner.s2_timeseries import Plan, monthly_windows, plan_s2_timeseries
 from geofetch.project import Project
+from geofetch.run import execute, gaps, targets
+from geofetch.catalog import Catalog
 
 
 def _gb(n: int) -> str:
@@ -102,6 +106,58 @@ def cmd_show(a: argparse.Namespace) -> int:
     return 0
 
 
+def _latest_plan(p: Project, plan_id: str | None) -> dict:
+    plans = p.list_plans()
+    if not plans:
+        raise SystemExit("no plans yet; run `geofetch plan`")
+    return p.load_plan(plan_id or plans[-1])
+
+
+def cmd_run(a: argparse.Namespace) -> int:
+    p = Project.load(Path(a.dir))
+    plan = _latest_plan(p, a.plan_id)
+    est = plan["estimate"][a.mode]
+    missing = gaps(p, plan, a.mode)
+    n_targets = len(targets(plan, a.mode))
+    print(f"plan {plan['id']} · mode {a.mode} · {n_targets} scenes × {len(plan['bands'])} bands · "
+          f"estimated {_gb(est['windowed_bytes'])} windowed · {len(missing)} assets not yet acquired")
+    infeasible = [w["window"] for w in plan["windows"] if w["verdict"] == "infeasible"]
+    if infeasible:
+        print(f"note: windows {', '.join(infeasible)} are marked infeasible for the clear-coverage target; their best-available scenes are still included")
+    if not missing:
+        print("nothing to do")
+        return 0
+    if not a.yes:
+        ans = input("proceed? [y/N] ").strip().lower()
+        if ans != "y":
+            print("aborted; plan unchanged")
+            return 1
+    plan["status"] = "approved"
+    p.save_plan(plan["id"], plan)
+    r = execute(p, plan, a.mode, a.threads)
+    print(f"done: fetched {r['fetched']}, skipped {r['skipped']} (already present), failed {r['failed']} → status {plan['status']}")
+    return 0 if r["failed"] == 0 else 2
+
+
+def cmd_status(a: argparse.Namespace) -> int:
+    p = Project.load(Path(a.dir))
+    cat = Catalog(p.root, p.meta.name)
+    rows = cat.summary()
+    print(f"project {p.meta.name} · {len(rows)} scenes in catalogue ({p.catalog_dir / 'catalog.json'})")
+    by_w: dict[str, list] = {}
+    for r in rows:
+        by_w.setdefault(r["window"], []).append(r)
+    for w in sorted(by_w):
+        print(f"  {w}: " + ", ".join(f"{r['tile'].replace('MGRS-', '')}[{'+'.join(r['bands'])}]" for r in by_w[w]))
+    if p.list_plans():
+        plan = _latest_plan(p, a.plan_id)
+        for mode in ("single", "composite"):
+            g = gaps(p, plan, mode)
+            print(f"  plan {plan['id']} {mode}: {len(targets(plan, mode)) * len(plan['bands']) - len(g)} assets present, {len(g)} missing"
+                  + (" — e.g. " + ", ".join(f"{x['window']} {x['tile'].replace('MGRS-', '')} {x['band']}" for x in g[:4]) if g else ""))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="geofetch", description="Project-first, reproducible EO data acquisition (prototype)")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -121,6 +177,15 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("show", help="list plans or print one")
     s.add_argument("dir"); s.add_argument("plan_id", nargs="?")
     s.set_defaults(fn=cmd_show)
+
+    s = sub.add_parser("run", help="approve and execute a plan")
+    s.add_argument("dir"); s.add_argument("plan_id", nargs="?"); s.add_argument("--mode", choices=["single", "composite"], default="single")
+    s.add_argument("--yes", "-y", action="store_true"); s.add_argument("--threads", type=int, default=12)
+    s.set_defaults(fn=cmd_run)
+
+    s = sub.add_parser("status", help="what the project has, and what the latest plan still lacks")
+    s.add_argument("dir"); s.add_argument("plan_id", nargs="?")
+    s.set_defaults(fn=cmd_status)
 
     a = ap.parse_args(argv)
     return a.fn(a)

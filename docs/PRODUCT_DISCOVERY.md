@@ -1,6 +1,6 @@
 # Product Discovery: Project-Aware Geospatial Data Acquisition
 
-Status: discovery complete, **qualified GO** on a narrowed scope (see §21). E1 and E2 executed 2026-09-15 — see `docs/EXPERIMENTS.md`.
+Status: discovery complete, **qualified GO** on a narrowed scope (see §21). E1 and E2 executed 2026-09-15; prototype phases 1–2 built 2026-09-18 — see `docs/EXPERIMENTS.md` and `README.md`.
 Date: 2026-09-15. Environment inspected: empty repo; host has Python 3.14, GDAL 3.12.2, QGIS 4.2.2, Node 22; no aria2/rclone/EODAG installed.
 
 Evidence for claims below comes from (a) live probes against provider APIs run today (scripts in `docs/probes/`, results quoted inline), (b) PyPI metadata, (c) primary docs and repos linked in §22. Where something is an inference rather than a measurement it is marked *(inference)*.
