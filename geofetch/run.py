@@ -20,6 +20,22 @@ from geofetch.project import Project
 from geofetch.registry import Source, load_sources
 from geofetch.transfer.window import fetch_window, sha256_of
 
+TRANSIENT = ("429", "Too Many Requests", "500", "502", "503", "504", "Timeout", "timed out", "Connection", "RemoteProtocolError", "CURL error")
+
+
+def _with_retry(fn, attempts: int = 4, first_delay: float = 5.0):
+    """Run fn(); on a transient network/server error wait and try again (5, 10, 20 s). Other errors raise at once."""
+    import time
+    delay = first_delay
+    for i in range(attempts):
+        try:
+            return fn()
+        except Exception as e:  # noqa: BLE001
+            if i == attempts - 1 or not any(t in f"{type(e).__name__} {e}" for t in TRANSIENT):
+                raise
+            time.sleep(delay)
+            delay *= 2
+
 
 def gaps(project: Project, plan: dict) -> list[dict]:
     cat = Catalog(project.root, project.meta.name)
@@ -67,20 +83,20 @@ def execute(project: Project, plan: dict, threads: int = 12, progress: Callable[
                     out = _out(project, source, e, key, ".gpkg")
                     t0 = datetime.now()
                     if source.driver == "overpass":
-                        _, n = overpass_driver.fetch(source, aoi.geometry, out)
+                        _with_retry(lambda: overpass_driver.fetch(source, aoi.geometry, out), attempts=2)
                     else:
-                        http_driver.fetch_vector(source, aoi.geometry, out, project.meta.country_iso3)
+                        _with_retry(lambda: http_driver.fetch_vector(source, aoi.geometry, out, project.meta.country_iso3))
                     assets_done[key] = {"path": out, "media_type": GPKG_TYPE, "size": out.stat().st_size, "sha256": sha256_of(out),
                                         "source_href": a["href"], "seconds": (datetime.now() - t0).total_seconds()}
                 elif plan["kind"] == "file_series" or e.get("whole_file"):
-                    local = http_driver.download_file(a["href"], project.cache_dir / "files" / Path(a["href"]).name)
+                    local = _with_retry(lambda: http_driver.download_file(a["href"], project.cache_dir / "files" / Path(a["href"]).name))
                     out = _out(project, source, e, key, ".tif")
                     r = fetch_window(str(local), aoi.geometry, out, epsg, threads=threads, nodata=source.access.get("nodata"))
                     assets_done[key] = {"path": out, "media_type": COG_TYPE, "size": r.output_bytes, "sha256": r.sha256, "source_href": a["href"],
                                         "seconds": r.seconds, "shape": [r.height, r.width]}
                 else:  # scenes / layer over HTTP range reads
                     out = _out(project, source, e, key, ".tif")
-                    r = fetch_window(sign(a["href"]), aoi.geometry, out, epsg, threads=threads, nodata=source.access.get("nodata"))
+                    r = _with_retry(lambda: fetch_window(sign(a["href"]), aoi.geometry, out, epsg, threads=threads, nodata=source.access.get("nodata")))
                     assets_done[key] = {"path": out, "media_type": COG_TYPE, "size": r.output_bytes, "sha256": r.sha256, "source_href": a["href"],
                                         "seconds": r.seconds, "shape": [r.height, r.width]}
                 done += 1

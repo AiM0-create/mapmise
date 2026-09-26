@@ -487,7 +487,9 @@ def cmd_rules(a: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(prog="geofetch", description="Local, reproducible acquisition of open geospatial data for an analysis")
+    from geofetch import __version__
+    ap = argparse.ArgumentParser(prog="geofetch", description="Say what you want to analyse and where; get the right open data, clipped, organised and documented.")
+    ap.add_argument("--version", action="version", version=f"geofetch {__version__}")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("init", help="create a project directory")
