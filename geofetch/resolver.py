@@ -75,6 +75,9 @@ def resolve_needs(needs: list[Need], bbox: list[float], start: str, end: str, is
             if need.temporal != "static" and not s.covers_period(start, end):
                 continue
             reasons = [f"theme '{need.theme}', {s.shape} data"]
+            full = need.temporal == "static" or s.covers_full_period(start, end)
+            if not full:
+                reasons.append(f"covers only part of the period ({s.temporal.get('from')} → {s.temporal.get('to') or 'now'})")
             if s.analysis_ready:
                 reasons.append("analysis-ready")
             if need.prefer.get("cloud_independent") and not s.cloud_dependent:
@@ -87,6 +90,7 @@ def resolve_needs(needs: list[Need], bbox: list[float], start: str, end: str, is
         def rank(c: Candidate):
             s = c.source
             return (
+                0 if need.temporal == "static" or s.covers_full_period(start, end) else 1,
                 0 if s.analysis_ready else 1,
                 0 if not (need.prefer.get("cloud_independent") and s.cloud_dependent) else 1,
                 0 if s.kind == "raster" else 1,

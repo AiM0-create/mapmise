@@ -13,7 +13,10 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
+import warnings
+
 from pystac_client import Client
+from pystac_client.warnings import DoesNotConformTo
 from shapely.geometry import shape
 from shapely.geometry.base import BaseGeometry
 
@@ -87,6 +90,15 @@ def _bbox_from(obj: dict) -> list[float] | None:
     return None
 
 
+def _group(props: dict, key) -> str | None:
+    """access.group_by: one property name or a list (joined with '/'), e.g. [landsat:wrs_path, landsat:wrs_row]."""
+    if not key:
+        return None
+    keys = key if isinstance(key, list) else [key]
+    vals = [props.get(k) for k in keys]
+    return "/".join(str(v) for v in vals) if all(v is not None for v in vals) else None
+
+
 def normalise(source: Source, feature: dict) -> Item:
     p = feature["properties"]
     alias = source.access.get("assets", {})
@@ -98,7 +110,7 @@ def normalise(source: Source, feature: dict) -> Item:
         source_id=source.id, id=feature["id"],
         datetime=datetime.fromisoformat(dt.replace("Z", "+00:00")).astimezone(timezone.utc),
         geometry=shape(feature["geometry"]), cloud_cover=p.get("eo:cloud_cover"),
-        group=str(p.get(group_key)) if group_key and p.get(group_key) is not None else None,
+        group=_group(p, group_key),
         relative_orbit=p.get("sat:relative_orbit"), orbit_state=p.get("sat:orbit_state"), epsg=_epsg(p),
         tile_bbox=tuple(bbox) if bbox and len(bbox) == 4 else None, assets=assets,
     )
@@ -110,9 +122,11 @@ def build_query(source: Source, bbox: list[float], start: str | None, end: str |
 
 
 def _fetch(q: Query, source: Source, page_size: int = 100) -> list[dict]:
+    warnings.simplefilter("ignore", DoesNotConformTo)  # Planetary Computer ignores the fields extension; harmless
     client = Client.open(PROVIDERS[q.provider])
     alias = source.access.get("assets", {})
-    include = _FIELDS + [f"assets.{alias[c]}" for c in q.assets if c in alias]
+    gb = source.access.get("group_by") or []
+    include = _FIELDS + [f"properties.{k}" for k in (gb if isinstance(gb, list) else [gb])] + [f"assets.{alias[c]}" for c in q.assets if c in alias]
     kw = dict(collections=[q.collection], bbox=list(q.bbox), limit=page_size, fields={"include": include, "exclude": ["links"]})
     if q.start and q.end:
         kw["datetime"] = f"{q.start}T00:00:00Z/{q.end}T23:59:59Z"

@@ -14,7 +14,9 @@ import yaml
 THEMES = {
     "optical", "sar", "elevation", "water", "hydrography", "vegetation", "landcover", "builtup", "buildings",
     "population", "precipitation", "soil_moisture", "temperature", "boundaries", "transport", "events",
+    "fire", "forest", "soil", "facilities",
 }
+PLANNERS = {"optical", "sar", "products"}
 KINDS = {"raster", "vector", "event"}
 SHAPES = {"layer", "series", "query", "events"}
 DRIVERS = {"stac", "http", "overpass", "gdacs"}
@@ -44,6 +46,21 @@ class Source:
     def driver(self) -> str:
         return self.access["driver"]
 
+    @property
+    def planner(self) -> str | None:
+        """Scene planner for series sources: explicit `access.planner`, else optical if cloud-dependent, sar if radar, else products."""
+        if self.shape != "series" or self.driver != "stac":
+            return None
+        if self.access.get("planner"):
+            return self.access["planner"]
+        if self.cloud_dependent:
+            return "optical"
+        return "sar" if "sar" in self.themes and self.access.get("group_by") == "sat:relative_orbit" else "products"
+
+    @property
+    def yearly(self) -> bool:
+        return (self.temporal.get("revisit_days") or 0) >= 300
+
     def covers_bbox(self, bbox: list[float], iso3: str | None = None) -> bool:
         c = self.coverage
         if c == "global":
@@ -53,6 +70,13 @@ class Source:
         if isinstance(c, list):
             return iso3 in c if iso3 else True
         return False
+
+    def covers_full_period(self, start: str, end: str) -> bool:
+        t = self.temporal
+        if t.get("type") == "static":
+            return True
+        frm, to = str(t.get("from", "0000")), t.get("to")
+        return frm <= start[:7] and (to is None or str(to) >= end[:7])
 
     def covers_period(self, start: str, end: str) -> bool:
         """Year-month string comparison; open-ended `to` means ongoing."""
@@ -101,6 +125,8 @@ def load_sources() -> dict[str, Source]:
             raise ValueError(f"source {e['id']}: unknown themes {bad}")
         if e["kind"] not in KINDS or e["shape"] not in SHAPES or e["access"].get("driver") not in DRIVERS:
             raise ValueError(f"source {e['id']}: bad kind/shape/driver")
+        if e["access"].get("planner") and e["access"]["planner"] not in PLANNERS:
+            raise ValueError(f"source {e['id']}: unknown planner {e['access']['planner']}")
         if e["id"] in out:
             raise ValueError(f"duplicate source id {e['id']}")
         out[e["id"]] = Source(

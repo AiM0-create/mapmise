@@ -18,7 +18,7 @@ FIX = json.loads((ROOT / "tests/fixtures/chitradurga_2026-06_2tiles.json").read_
 
 @pytest.fixture(scope="module")
 def aoi():
-    return load_aoi(ROOT / "data/chitradurga.geojson", "Chitradurga")
+    return load_aoi(ROOT / "tests/fixtures/chitradurga.geojson", "Chitradurga")
 
 
 @pytest.fixture(scope="module")

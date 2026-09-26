@@ -1,7 +1,9 @@
 """geofetch command line.
 
-    geofetch init <dir> --name --aoi --start --end [--objective]
-    geofetch ask  <dir> "what you want to analyse" [--event YYYY-MM-DD] [--dry-run] [--yes] [--skip theme:temporal] [--use theme:temporal=source]
+    geofetch ask "flood in Chitradurga in August 2026"   one prompt: place and dates are understood, a project is created
+          [--project DIR] [--place NAME] [--pick N] [--aoi FILE] [--start --end] [--event YYYY-MM-DD]
+          [--dry-run] [--yes] [--skip theme:temporal] [--use theme:temporal=source] [--mode composite]
+    geofetch init <dir> --name --aoi FILE --start --end [--objective]   explicit project from an AOI file
     geofetch run  <dir> [request-id] [--yes]        execute the plans of a request (default: latest)
     geofetch status <dir>                            what the project has, per need; what is missing and why
     geofetch open <dir>                              per-window VRT mosaics + vectors + AOI in QGIS
@@ -12,8 +14,10 @@
 from __future__ import annotations
 
 import argparse
+import re
 import sys
-from datetime import date, datetime, timezone
+import unicodedata
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from geofetch.catalog import Catalog
@@ -25,6 +29,7 @@ from geofetch.registry import Need, Source, load_sources
 from geofetch.report import write_report
 from geofetch.resolver import Resolution, parse_ask, resolve_needs
 from geofetch.run import execute, gaps
+from geofetch.understand import Period, geocode, parse_period, place_candidates
 
 
 def _gb(n: int) -> str:
@@ -63,9 +68,10 @@ def _assets_for(source: Source, needs: list[Need]) -> list[str]:
     return out
 
 
-def _build_plans(p: Project, resolutions: list[Resolution], event: date | None, a: argparse.Namespace) -> tuple[list[dict], list[tuple[Need, str]]]:
+def _build_plans(p: Project, resolutions: list[Resolution], start: date, end: date, event: date | None, pre_days: int, post_days: int,
+                 a: argparse.Namespace) -> tuple[list[dict], list[tuple[Need, str]]]:
     """Group resolved needs by (source, temporal class) and build one plan per group. Returns (plans, unmet)."""
-    aoi, (start, end) = p.aoi(), p.period
+    aoi = p.aoi()
     sizes = p.size_cache()
     groups: dict[tuple[str, str], list[Need]] = {}
     unmet: list[tuple[Need, str]] = []
@@ -83,12 +89,12 @@ def _build_plans(p: Project, resolutions: list[Resolution], event: date | None, 
         s = sources[sid]
         try:
             if s.shape == "series" and s.driver == "stac":
-                plan = scene_plan(aoi, s, needs, _assets_for(s, needs), start, end, p.cache_dir, sizes, event, a.pre_days, a.post_days,
+                plan = scene_plan(aoi, s, needs, _assets_for(s, needs), start, end, p.cache_dir, sizes, event, pre_days, post_days,
                                   cloud_max=a.cloud_max, clear_target=a.clear_target, mode=a.mode)
             elif s.shape == "series" and s.driver == "http":
                 plan = file_series_plan(aoi, s, needs, list(s.access["assets"]), start, end, sizes)
             elif s.shape == "layer" and s.kind == "raster":
-                plan = layer_plan(aoi, s, needs, list(s.access["assets"]), p.cache_dir, sizes, p.meta.country_iso3)
+                plan = layer_plan(aoi, s, needs, _assets_for(s, needs), p.cache_dir, sizes, p.meta.country_iso3)
             else:
                 plan = vector_plan(aoi, s, needs, p.meta.country_iso3)
         except Exception as e:  # noqa: BLE001 — a failing source must not sink the request
@@ -99,6 +105,34 @@ def _build_plans(p: Project, resolutions: list[Resolution], event: date | None, 
         plan["created"], plan["status"], plan["event"] = datetime.now(timezone.utc).isoformat(timespec="seconds"), "proposed", event.isoformat() if event else None
         p.save_plan(plan["id"], plan)
         plans.append(plan)
+
+    # automatic fallback: an optical plan with infeasible windows gets the best cloud-independent alternative for the same need
+    planned = {pl["source"] for pl in plans}
+    by_key = {r.need.key: r for r in resolutions}
+    for pl in list(plans):
+        bad = [w["label"] for w in pl["windows"] if w["verdict"] == "infeasible"]
+        if not bad or sources[pl["source"]].planner != "optical":
+            continue
+        for n in pl["needs"]:
+            r = by_key.get(f"{n['theme']}:{n['temporal']}")
+            alt = next((c.source for c in (r.candidates if r else []) if not c.source.cloud_dependent and c.source.shape == "series"
+                        and c.source.driver == "stac" and c.source.id not in planned), None)
+            if not alt:
+                continue
+            need = r.need
+            try:
+                fb = scene_plan(aoi, alt, [need], _assets_for(alt, [need]), start, end, p.cache_dir, sizes, event, pre_days, post_days, mode="single")
+            except Exception as e:  # noqa: BLE001
+                unmet.append((need, f"fallback {alt.id} failed: {type(e).__name__}"))
+                continue
+            fb["id"] = f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{alt.id}"
+            fb["created"], fb["status"], fb["event"] = datetime.now(timezone.utc).isoformat(timespec="seconds"), "proposed", event.isoformat() if event else None
+            fb["fallback_for"] = {"source": pl["source"], "windows": bad}
+            fb["explanations"] = [f"Added automatically: {pl['source']} is infeasible for {', '.join(bad)} (clouds); "
+                                  f"{alt.name} is cloud-independent and serves the same need."] + fb["explanations"]
+            p.save_plan(fb["id"], fb)
+            plans.append(fb)
+            planned.add(alt.id)
     p.save_size_cache(sizes)
     return plans, unmet
 
@@ -111,7 +145,8 @@ def print_request(plans: list[dict], unmet: list[tuple[Need, str]], verbose: boo
         needs = ", ".join(f"{n['theme']}/{n['temporal']}" for n in pl["needs"])
         est = _gb(pl["estimate"]["windowed_bytes"]) if pl["estimate"]["known"] else "live"
         verdicts = ", ".join(f"{w['label']}={w['verdict'].replace('feasible-', '')}" for w in pl["windows"])
-        print(f"{needs[:28]:28} {pl['source'][:26]:26} {pl['estimate']['n_assets']:5d} {est:>8}  {verdicts}")
+        src = pl["source"] + (" ↳fallback" if pl.get("fallback_for") else "")
+        print(f"{needs[:28]:28} {src[:26]:26} {pl['estimate']['n_assets']:5d} {est:>8}  {verdicts}")
     for n, why in unmet:
         print(f"{(n.theme + '/' + n.temporal)[:28]:28} {'— unmet':26} {'':5} {'':8}  {why}")
     print(f"\ntotal: {len(plans)} sources, {n_assets} files, ≈ {_gb(total)} to transfer (AOI-windowed; vector queries not counted)")
@@ -120,6 +155,10 @@ def print_request(plans: list[dict], unmet: list[tuple[Need, str]], verbose: boo
         for pl in plans:
             for n in pl["needs"]:
                 print(f"  {n['theme']}/{n['temporal']} ({n['priority']}) ← {pl['source']}: {n['why']}")
+        for pl in plans:
+            if pl.get("fallback_for"):
+                f = pl["fallback_for"]
+                print(f"  ↳ {pl['source']} added automatically because {f['source']} is infeasible for {', '.join(f['windows'])}")
         flagged = [(pl["source"], w) for pl in plans for w in pl["windows"] if w["verdict"] in ("infeasible", "incomplete", "feasible-composite")]
         if flagged:
             print("\nVerdicts needing your attention:")
@@ -127,48 +166,112 @@ def print_request(plans: list[dict], unmet: list[tuple[Need, str]], verbose: boo
                 print(f"  {sid} {w['label']}: {w['verdict_text']}")
 
 
+def _slug(text: str) -> str:
+    t = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode().lower()
+    return re.sub(r"[^a-z0-9]+", "-", t).strip("-") or "project"
+
+
+def _open_or_create_project(a: argparse.Namespace, text: str, period: Period | None) -> tuple[Project, str]:
+    """Existing project if --project points at one; otherwise create one from --aoi, --place, or a place named in the ask."""
+    if a.project and (Path(a.project) / "project.json").exists():
+        if a.place or a.aoi:
+            raise SystemExit(f"{a.project} already has an AOI; drop --place/--aoi or use a new --project")
+        return Project.load(Path(a.project)), "existing project"
+    start, end = _request_period(a, period, None)
+    if a.aoi:
+        name = Path(a.aoi).stem
+        root = Path(a.project or f"./{_slug(name)}-{start:%Y-%m}")
+        return Project.init(root, name, text, Path(a.aoi), start, end), f"file {a.aoi}"
+    queries = [a.place] if a.place else place_candidates(text, period)
+    if not queries:
+        raise SystemExit("no place found in the ask; say where (\"… in Chitradurga …\"), or pass --place NAME or --aoi FILE")
+    last_err = None
+    for q in queries:
+        try:
+            place = geocode(q, a.pick)
+            break
+        except LookupError as e:
+            last_err = e
+    else:
+        raise SystemExit(str(last_err))
+    root = Path(a.project or f"./{_slug(place.name)}-{start:%Y-%m}")
+    p = Project.create(root, place.name, text, place.geometry, f"OpenStreetMap Nominatim {place.osm} ({place.display_name})", start, end,
+                       aoi_attribution="© OpenStreetMap contributors, ODbL 1.0")
+    how = f"“{q}” → {place.display_name} ({place.kind}, {place.osm})"
+    if len(place.alternatives) > 1:
+        how += "\n          other matches: " + "; ".join(place.alternatives[:4]) + "  (choose with --pick N)"
+    return p, how
+
+
+def _request_period(a: argparse.Namespace, period: Period | None, p: Project | None) -> tuple[date, date]:
+    if a.start or a.end:
+        s = date.fromisoformat(a.start) if a.start else (period.start if period else date.today() - timedelta(days=365))
+        e = date.fromisoformat(a.end) if a.end else (period.end if period else date.today())
+        return s, e
+    if period:
+        return period.start, period.end
+    if p:
+        return p.period
+    return date.today() - timedelta(days=365), date.today()
+
+
+def _event_for(a: argparse.Namespace, ask, period: Period | None, p: Project, start: date, end: date) -> tuple[date | None, int, int, str]:
+    """(event, pre_days, post_days, explanation) for before/after needs. Never invents a date silently."""
+    if a.event:
+        return date.fromisoformat(a.event), a.pre_days, a.post_days, f"event {a.event} (given)"
+    if period and period.event:
+        return period.event, a.pre_days, a.post_days, f"event {period.event} (from the ask)"
+    code = load_sources()["gdacs-events"].access["types"].get(ask.event_type or "")
+    if code:
+        try:
+            evs = gdacs.events(code, p.aoi().bbox, start.isoformat(), end.isoformat())
+        except Exception as e:  # noqa: BLE001 — GDACS is a convenience, not a dependency
+            evs = []
+            print(f"warning: GDACS lookup failed ({type(e).__name__})")
+        if evs:
+            ev = evs[0]
+            others = f"; {len(evs) - 1} other(s) nearby" if len(evs) > 1 else ""
+            return date.fromisoformat(ev.start), a.pre_days, a.post_days, f"event {ev.start} from GDACS: {ev.name} ({ev.alert}, ~{ev.distance_deg}° away{others})"
+    # no exact date known: the stated period is 'after', the same number of days before it is 'before'
+    span = max((end - start).days, 1)
+    return start, max(a.pre_days, span), span, (f"no exact event date known (GDACS has none near here) — using the stated period {start} → {end} as 'after' "
+                                                f"and the {max(a.pre_days, span)} days before it as 'before'. Pass --event YYYY-MM-DD to be precise")
+
+
 def cmd_ask(a: argparse.Namespace) -> int:
-    p = Project.load(Path(a.dir))
+    text = a.text
+    period = parse_period(text)
+    p, where = _open_or_create_project(a, text, period)
     _ensure_country(p)
-    text = a.text or p.meta.objective
-    if not text:
-        raise SystemExit("nothing asked and the project has no objective")
+    start, end = _request_period(a, period, p)
+    print(f"understood:\n  place   {where}\n          {p.meta.aoi_area_km2:,.0f} km², {p.meta.country_iso3 or 'country unknown'}, project CRS EPSG:{p.meta.project_epsg}"
+          f"\n  period  {start} → {end}" + (f"  ← “{period.text}”" if period and not (a.start or a.end) else "  (flags)" if (a.start or a.end) else "  (default: last 12 months)" if not period else "")
+          + f"\n  project {p.root.resolve()}")
     ask = parse_ask(text)
     if not ask.needs:
-        raise SystemExit(f"no ask rule matched {text!r}. Rules recognise e.g. flood, drought, ndvi, urban, reservoir, slope, road, rainfall — "
-                         "or add a rule to geofetch/registry/asks.yaml")
+        raise SystemExit(f"no ask rule matched {text!r}. Rules recognise e.g. flood, drought, ndvi, urban, reservoir, slope, road, rainfall, "
+                         "forest, fire, heat, soil — see `geofetch rules`, or add one to geofetch/registry/asks.yaml")
     skip = set(a.skip or [])
     needs = [n for n in ask.needs if n.key not in skip]
-    print(f"ask: {text}\nmatched rules: {', '.join(ask.matched_rules)} → {len(needs)} needs" + (f" (skipped {', '.join(skip)})" if skip else ""))
-    start, end = p.meta.start, p.meta.end
+    print(f"  asks    {', '.join(ask.matched_rules)} → {len(needs)} data needs" + (f" (skipped {', '.join(skip)})" if skip else ""))
     overrides = dict(kv.split("=", 1) for kv in (a.use or []))
-    resolutions = resolve_needs(needs, p.aoi().bbox, start, end, p.meta.country_iso3, overrides)
+    resolutions = resolve_needs(needs, p.aoi().bbox, start.isoformat(), end.isoformat(), p.meta.country_iso3, overrides)
 
-    event = date.fromisoformat(a.event) if a.event else None
-    if event is None and any(n.temporal == "pair" for n in needs):
-        code = load_sources()["gdacs-events"].access["types"].get(ask.event_type or "", None)
-        if code:
-            try:
-                evs = gdacs.events(code, p.aoi().bbox, start, end)
-            except Exception as e:  # noqa: BLE001
-                evs = []
-                print(f"warning: GDACS lookup failed ({e})")
-            if evs:
-                print(f"\nGDACS {ask.event_type} events near the AOI in the period (pick one and re-run with --event):")
-                for e in evs[:6]:
-                    print(f"  {e.start} → {e.end}  {e.alert:6} {e.name}  (~{e.distance_deg}° from AOI centre)")
-            else:
-                print(f"\nno GDACS {ask.event_type} event within ~3° of the AOI in the period; give the date with --event YYYY-MM-DD")
+    event, pre_days, post_days = None, a.pre_days, a.post_days
+    if any(n.temporal == "pair" for n in needs):
+        event, pre_days, post_days, why = _event_for(a, ask, period, p, start, end)
+        print(f"  before/after  {why}")
 
-    plans, unmet = _build_plans(p, resolutions, event, a)
+    plans, unmet = _build_plans(p, resolutions, start, end, event, pre_days, post_days, a)
     req_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    p.save_request(req_id, {"id": req_id, "ask": text, "rules": ask.matched_rules, "event": event.isoformat() if event else None,
+    p.save_request(req_id, {"id": req_id, "ask": text, "rules": ask.matched_rules, "period": [start.isoformat(), end.isoformat()],
+                            "event": event.isoformat() if event else None, "pre_days": pre_days, "post_days": post_days,
                             "needs": [{"theme": n.theme, "temporal": n.temporal, "priority": n.priority, "why": n.why} for n in needs],
                             "resolutions": [{"need": r.need.key, "chosen": r.chosen.id if r.chosen else None,
                                              "candidates": [c.source.id for c in r.candidates], "reasons": r.candidates[0].reasons if r.candidates else []} for r in resolutions],
                             "plans": [pl["id"] for pl in plans], "unmet": [{"need": n.key, "why": w} for n, w in unmet], "status": "proposed"})
     print_request(plans, unmet)
-    print(f"\nrequest {req_id} written ({len(plans)} plans)")
+    print(f"\nrequest {req_id} written ({len(plans)} plans) — nothing downloaded yet")
     if a.dry_run or not plans:
         return 0
     return _run_plans(p, req_id, plans, a.yes, a.threads)
@@ -264,11 +367,32 @@ def cmd_report(a: argparse.Namespace) -> int:
 
 
 def cmd_sources(a: argparse.Namespace) -> int:
+    if a.check is not None:
+        from concurrent.futures import ThreadPoolExecutor
+
+        from geofetch.registry.check import check_source
+        srcs = [s for s in load_sources().values() if not a.check or s.id in a.check]
+        with ThreadPoolExecutor(6) as ex:
+            results = list(ex.map(check_source, srcs))
+        for r in results:
+            print(f"{'✓' if r.ok else '✗'} {r.source:28} {r.detail}")
+        bad = [r for r in results if not r.ok]
+        print(f"\n{len(results) - len(bad)}/{len(results)} sources reachable")
+        return 1 if bad else 0
     for s in load_sources().values():
         if a.theme and a.theme not in s.themes:
             continue
         res = f"{s.resolution_m:g} m" if s.resolution_m else "vector"
         print(f"{s.id:28} {s.kind:6} {s.shape:7} {res:>8}  {', '.join(s.themes):34} {s.license}")
+    return 0
+
+
+def cmd_rules(a: argparse.Namespace) -> int:
+    from geofetch.registry import load_ask_rules
+    for r in load_ask_rules():
+        words = ", ".join(k.replace("\\b", "").replace("\\", "") for k in r.keywords[:4])
+        needs = ", ".join(f"{n.theme}/{n.temporal}" for n in r.needs)
+        print(f"{r.id:13} [{words}]\n{'':14}→ {needs}")
     return 0
 
 
@@ -281,8 +405,12 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--start", required=True); s.add_argument("--end", required=True); s.add_argument("--objective", default="")
     s.set_defaults(fn=cmd_init)
 
-    s = sub.add_parser("ask", help="say what you want to analyse; get a plan; approve; fetch")
-    s.add_argument("dir"); s.add_argument("text", nargs="?", help="defaults to the project objective")
+    s = sub.add_parser("ask", help="one prompt: what you want to analyse, where, when → plan → approve → fetch")
+    s.add_argument("text", help='e.g. "flood in Chitradurga in August 2026"')
+    s.add_argument("--project", help="project directory (default: ./<place>-<yyyy-mm>; reused if it exists)")
+    s.add_argument("--place", help="place name to geocode instead of the one found in the ask"); s.add_argument("--pick", type=int, default=0, help="choose another geocoder match")
+    s.add_argument("--aoi", help="AOI file (GeoJSON/GPKG/Shapefile) instead of a place name")
+    s.add_argument("--start"); s.add_argument("--end")
     s.add_argument("--event", help="event date for before/after data (YYYY-MM-DD)")
     s.add_argument("--pre-days", type=int, default=30); s.add_argument("--post-days", type=int, default=30)
     s.add_argument("--cloud-max", type=float, default=20.0); s.add_argument("--clear-target", type=float, default=0.8)
@@ -304,7 +432,12 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("dir"); s.add_argument("--no-launch", action="store_true"); s.set_defaults(fn=cmd_open)
 
     s = sub.add_parser("report", help="write REPORT.md"); s.add_argument("dir"); s.set_defaults(fn=cmd_report)
-    s = sub.add_parser("sources", help="list the data registry"); s.add_argument("--theme"); s.set_defaults(fn=cmd_sources)
+    s = sub.add_parser("sources", help="list the data registry, or --check entries live")
+    s.add_argument("--theme"); s.add_argument("--check", nargs="*", metavar="ID", help="probe sources live (all if no ids given)")
+    s.set_defaults(fn=cmd_sources)
+
+    s = sub.add_parser("rules", help="list the ask vocabulary (which words map to which data needs)")
+    s.set_defaults(fn=cmd_rules)
 
     a = ap.parse_args(argv)
     return a.fn(a)

@@ -26,7 +26,10 @@ from geofetch.drivers import http as http_driver
 from geofetch.drivers import stac as stac_driver
 from geofetch.drivers.signing import sign
 from geofetch.geo import UA
-from geofetch.planner.optical import Plan as ScenePlan, Window, monthly_windows, plan_optical, pre_post_windows
+import math
+
+from geofetch.planner.optical import Plan as ScenePlan, Window, monthly_windows, plan_optical, pre_post_windows, yearly_windows
+from geofetch.planner.products import plan_products
 from geofetch.planner.sar import plan_sar
 from geofetch.registry import Need, Source
 from geofetch.transfer.window import GDAL_ENV
@@ -56,26 +59,28 @@ def _sizes(hrefs: dict[str, str], cache: dict[str, int], workers: int = 16) -> d
     return {k: cache[k] for k in hrefs}
 
 
-def _windows_for(need_temporal: str, start: date, end: date, event: date | None, pre_days: int, post_days: int) -> list[Window]:
+def _windows_for(need_temporal: str, start: date, end: date, event: date | None, pre_days: int, post_days: int, yearly: bool = False) -> list[Window]:
     if need_temporal == "pair":
         if event is None:
             raise ValueError("pair windows need an event date")
         return pre_post_windows(event, pre_days, post_days)
-    return monthly_windows(start, end)
+    return yearly_windows(start, end) if yearly else monthly_windows(start, end)
 
 
 def scene_plan(aoi: AOI, source: Source, needs: list[Need], assets: list[str], start: date, end: date, cache_dir: Path,
                size_cache: dict[str, int], event: date | None = None, pre_days: int = 30, post_days: int = 30,
                cloud_max: float = 20.0, clear_target: float = 0.8, mode: str = "single") -> dict:
     temporal = "pair" if any(n.temporal == "pair" for n in needs) else "series"
-    windows = _windows_for(temporal, start, end, event, pre_days, post_days)
+    windows = _windows_for(temporal, start, end, event, pre_days, post_days, yearly=source.yearly and temporal != "pair")
     q = stac_driver.build_query(source, aoi.bbox, windows[0].start.isoformat(), windows[-1].end.isoformat(), assets)
     items, record = stac_driver.search(source, q, cache_dir)
-    if source.cloud_dependent:
+    if source.planner == "optical":
         sp: ScenePlan = plan_optical(aoi, items, windows, assets, cloud_max=cloud_max, clear_target=clear_target)
-    else:
+    elif source.planner == "sar":
         ref = {"pre": event, "post": event} if event else None
         sp = plan_sar(aoi, items, windows, assets, same_orbit=(temporal == "pair"), reference=ref)
+    else:
+        sp = plan_products(aoi, items, windows, assets)
     by_id = {it.id: it for it in items}
     frac = {t.tile: t.aoi_fraction_of_tile for t in sp.tiles}
     acquire = []
@@ -87,7 +92,7 @@ def scene_plan(aoi: AOI, source: Source, needs: list[Need], assets: list[str], s
     sizes = _sizes(hrefs, size_cache)
     full = windowed = 0
     for e in acquire:
-        f = frac.get(e["group"], 1.0) if source.cloud_dependent else _footprint_fraction(aoi, by_id[e["item_id"]].geometry)
+        f = frac.get(e["group"], 1.0) if source.planner == "optical" else _footprint_fraction(aoi, by_id[e["item_id"]].geometry)
         for a, v in e["assets"].items():
             v["size"] = sizes.get(f"{e['item_id']}/{a}", 0)
             full += v["size"]
@@ -119,8 +124,24 @@ def layer_plan(aoi: AOI, source: Source, needs: list[Need], assets: list[str], c
         for it in items:
             acquire.append({"window": "static", "item_id": it.id, "date": it.date, "group": it.group, "fraction": _footprint_fraction(aoi, it.geometry),
                             "assets": {k: {"href": it.assets[k]["href"], "size": None} for k in assets if k in it.assets}})
+    elif source.driver == "http" and a.get("mode") == "tile_grid":
+        # fixed lat/lon grid of files (e.g. 10° tiles named by their top-left corner: 20N_070E)
+        step = a["tile_deg"]
+        minx, miny, maxx, maxy = aoi.bbox
+        for top in range(math.ceil(maxy / step) * step, math.floor(miny / step) * step, -step):
+            for left in range(math.floor(minx / step) * step, math.ceil(maxx / step) * step, step):
+                tile_geom = box(left, top - step, left + step, top)
+                if not tile_geom.intersects(aoi.geometry):
+                    continue
+                tile = f"{abs(top):02d}{'N' if top >= 0 else 'S'}_{abs(left):03d}{'E' if left >= 0 else 'W'}"
+                acquire.append({"window": "static", "item_id": f"{source.id}-{tile}", "date": str(source.temporal.get("to") or source.temporal.get("from")),
+                                "group": tile, "fraction": _footprint_fraction(aoi, tile_geom),
+                                "assets": {k: {"href": a["url"].format(tile=tile, layer=layer), "size": None} for k, layer in a["assets"].items() if k in assets}})
+        record = {"query": {"url": a["url"], "tiles": [e["group"] for e in acquire]}, "searched_at": None}
     elif source.driver == "http" and a.get("mode") == "window":
-        url = http_driver.render_url(a["url"], iso3=iso3)
+        url = http_driver.render_url(a["url"], iso3=iso3) if a.get("url") else None
+        urls = {k: http_driver.render_url(u, iso3=iso3) for k, u in a["urls"].items()} if a.get("urls") else {k: url for k in assets}
+        url = url or next(iter(urls.values()))
         whole = False
         try:
             with Env(**GDAL_ENV), rasterio.open(f"/vsicurl/{url}") as ds:  # header only: bounds for the AOI fraction
@@ -129,7 +150,7 @@ def layer_plan(aoi: AOI, source: Source, needs: list[Need], assets: list[str], c
         except rasterio.errors.RasterioIOError:  # server ignores HTTP ranges: download the whole file once, then clip
             whole, frac = True, 1.0
         acquire.append({"window": "static", "item_id": f"{source.id}-{(iso3 or 'global').lower()}", "date": str(source.temporal.get("from")), "group": None,
-                        "fraction": frac, "whole_file": whole, "assets": {k: {"href": url, "size": None} for k in assets}})
+                        "fraction": frac, "whole_file": whole, "assets": {k: {"href": urls[k], "size": None} for k in assets if k in urls}})
         record = {"query": {"url": url}, "searched_at": None}
     else:
         raise ValueError(f"layer_plan cannot handle {source.id} ({source.driver}/{a.get('mode')})")

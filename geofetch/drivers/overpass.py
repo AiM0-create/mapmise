@@ -6,7 +6,7 @@ from pathlib import Path
 
 import geopandas as gpd
 import httpx
-from shapely.geometry import LineString, Polygon
+from shapely.geometry import LineString, Point, Polygon
 from shapely.geometry.base import BaseGeometry
 
 from geofetch.geo import UA
@@ -18,14 +18,15 @@ MIRRORS = ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.sys
 def build_query(source: Source, bbox: list[float]) -> str:
     s, w, n, e = bbox[1], bbox[0], bbox[3], bbox[2]
     body = source.access["query"].format(bbox=f"{s},{w},{n},{e}")
-    return f"[out:json][timeout:180];({body});out geom;"
+    out = source.access.get("out", "geom")
+    return f"[out:json][timeout:180];({body});out {out};"
 
 
 def run_query(query: str) -> list[dict]:
     last = None
     for url in MIRRORS:
         try:
-            r = httpx.post(url, data={"data": query}, headers={**UA, "Accept": "application/json"}, timeout=300)
+            r = httpx.post(url, data={"data": query}, headers={**UA, "Accept": "application/json"}, timeout=200)
             if r.status_code == 200 and "json" in r.headers.get("content-type", ""):
                 return r.json().get("elements", [])
             last = f"{url}: HTTP {r.status_code}"
@@ -36,6 +37,13 @@ def run_query(query: str) -> list[dict]:
 
 def to_gdf(elements: list[dict], geometry: str) -> gpd.GeoDataFrame:
     rows = []
+    keep = ("highway", "name", "building", "waterway", "surface", "lanes", "amenity", "healthcare", "operator:type")
+    if geometry == "point":
+        for el in elements:
+            c = el if "lat" in el else el.get("center")
+            if c:
+                rows.append({"osm_id": f"{el['type']}/{el['id']}", **{k: v for k, v in el.get("tags", {}).items() if k in keep}, "geometry": Point(c["lon"], c["lat"])})
+        return gpd.GeoDataFrame(rows, geometry="geometry", crs="EPSG:4326") if rows else gpd.GeoDataFrame(geometry=[], crs="EPSG:4326")
     for el in elements:
         if el.get("type") != "way" or "geometry" not in el:
             continue
@@ -48,7 +56,7 @@ def to_gdf(elements: list[dict], geometry: str) -> gpd.GeoDataFrame:
             geom = Polygon(coords)
         else:
             geom = LineString(coords)
-        rows.append({"osm_id": el["id"], **{k: v for k, v in el.get("tags", {}).items() if k in ("highway", "name", "building", "waterway", "surface", "lanes")}, "geometry": geom})
+        rows.append({"osm_id": el["id"], **{k: v for k, v in el.get("tags", {}).items() if k in keep}, "geometry": geom})
     return gpd.GeoDataFrame(rows, geometry="geometry", crs="EPSG:4326") if rows else gpd.GeoDataFrame(geometry=[], crs="EPSG:4326")
 
 

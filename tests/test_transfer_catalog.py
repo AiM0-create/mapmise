@@ -48,7 +48,7 @@ def test_fetch_window_reprojects(synthetic, tmp_path):
 
 
 def test_catalog_add_merge_verify(tmp_path, synthetic):
-    p = Project.init(tmp_path / "proj", "P", "", ROOT / "data/chitradurga.geojson", date(2026, 6, 1), date(2026, 6, 30))
+    p = Project.init(tmp_path / "proj", "P", "", ROOT / "tests/fixtures/chitradurga.geojson", date(2026, 6, 1), date(2026, 6, 30))
     cat = Catalog(p.root, "P")
     r1 = fetch_window(str(synthetic), _aoi(), p.root / "data/src/static/ITEM1_a.tif", 32643, threads=2)
     a1 = {"a": {"path": r1.output, "media_type": COG_TYPE, "size": r1.output_bytes, "sha256": r1.sha256, "source_href": "https://x/a", "seconds": 1.0}}
@@ -61,3 +61,27 @@ def test_catalog_add_merge_verify(tmp_path, synthetic):
     assert cat.summary()[0]["source"] == "src"
     r1.output.write_bytes(b"x" * r1.output_bytes)
     assert cat.has_asset("ITEM1", "a") and not cat.has_asset("ITEM1", "a", verify=True)
+
+
+def test_fill_value_never_defaults_to_zero():
+    from geofetch.transfer.window import fill_value
+    assert fill_value("uint8", None) == 255 and fill_value("int16", None) == -32768 and fill_value("float32", None) == -9999.0
+    assert fill_value("uint8", 0) == 0          # a declared nodata is respected
+    assert fill_value("uint8", None, 200) == 200  # registry override
+
+
+def test_zero_valued_pixels_survive_clipping(tmp_path):
+    """A product whose valid range includes 0 and declares no nodata (e.g. water occurrence) must keep its zeros."""
+    path = tmp_path / "zeros.tif"
+    with rasterio.open(path, "w", driver="GTiff", width=200, height=200, count=1, dtype="uint8", crs="EPSG:32643",
+                       transform=from_origin(700000, 1600000, 10, 10), tiled=True, blockxsize=128, blockysize=128) as ds:
+        ds.write(np.zeros((200, 200), dtype="uint8"), 1)
+    r = fetch_window(str(path), _aoi_small(), tmp_path / "o.tif", 32643, threads=2)
+    with rasterio.open(r.output) as ds:
+        arr = ds.read(1)
+        assert ds.nodata == 255 and (arr == 0).sum() > 0 and set(np.unique(arr)) <= {0, 255}
+
+
+def _aoi_small():
+    t = Transformer.from_crs("EPSG:32643", "EPSG:4326", always_xy=True)
+    return box(*t.transform(700300, 1598500), *t.transform(701200, 1599500))

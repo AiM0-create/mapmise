@@ -37,6 +37,7 @@ class ProjectMeta:
     created: str
     format_version: int = FORMAT_VERSION
     country_iso3: str | None = None  # looked up once from the AOI centroid; used by per-country URL templates
+    aoi_attribution: str | None = None  # licence/attribution of the AOI geometry when it came from a geocoder
 
 
 class Project:
@@ -71,20 +72,28 @@ class Project:
     # -- lifecycle
     @classmethod
     def init(cls, root: Path, name: str, objective: str, aoi_source: Path, start: date, end: date, epsg: int | None = None) -> "Project":
+        """Create a project from an AOI file (any OGR-readable vector)."""
+        aoi = load_aoi(aoi_source, name)
+        return cls.create(root, name, objective, aoi.geometry, str(Path(aoi_source).resolve()), start, end, epsg)
+
+    @classmethod
+    def create(cls, root: Path, name: str, objective: str, geometry, aoi_source: str, start: date, end: date,
+               epsg: int | None = None, aoi_attribution: str | None = None) -> "Project":
+        """Create a project from a WGS84 geometry; `aoi_source` records where it came from (file path or geocoder reference)."""
         root = Path(root)
         if (root / PROJECT_FILE).exists():
             raise FileExistsError(f"{root / PROJECT_FILE} already exists")
         if end < start:
             raise ValueError("end date is before start date")
-        aoi = load_aoi(aoi_source, name)
         for d in ("aoi", "plans", "requests", "catalog", ".cache"):
             (root / d).mkdir(parents=True, exist_ok=True)
-        gpd.GeoDataFrame({"name": [name]}, geometry=[aoi.geometry], crs="EPSG:4326").to_file(root / "aoi" / "aoi.geojson", driver="GeoJSON")
+        gpd.GeoDataFrame({"name": [name]}, geometry=[geometry], crs="EPSG:4326").to_file(root / "aoi" / "aoi.geojson", driver="GeoJSON")
+        aoi = load_aoi(root / "aoi" / "aoi.geojson", name)
         meta = ProjectMeta(
             name=name, objective=objective, start=start.isoformat(), end=end.isoformat(),
-            aoi_path="aoi/aoi.geojson", aoi_source=str(Path(aoi_source).resolve()),
-            aoi_area_km2=round(aoi.area_km2, 1), project_epsg=epsg or aoi.utm_epsg,
-            created=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            aoi_path="aoi/aoi.geojson", aoi_source=aoi_source, aoi_area_km2=round(aoi.area_km2, 1),
+            project_epsg=epsg or aoi.utm_epsg, created=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            aoi_attribution=aoi_attribution,
         )
         p = cls(root, meta)
         p.save()

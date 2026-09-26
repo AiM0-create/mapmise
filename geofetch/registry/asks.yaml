@@ -25,6 +25,7 @@
     - {theme: buildings,  temporal: static, priority: optional,    why: "what is exposed"}
     - {theme: transport,  temporal: static, priority: optional,    why: "access and disruption"}
     - {theme: hydrography, temporal: static, priority: optional,   why: "rivers and canals that carry the flood"}
+    - {theme: facilities, temporal: static, priority: optional,    why: "hospitals and schools that may be cut off or used as shelters"}
 
 - id: drought
   keywords: ["\\bdrought", "crop (stress|condition|failure)", "monsoon (failure|deficit)", "rain(fall)? deficit", "dry spell"]
@@ -46,6 +47,7 @@
   keywords: ["\\burban", "built[- ]?up", "city (growth|expansion|sprawl)", "settlement", "urbani[sz]ation", "land use change"]
   needs:
     - {theme: builtup,    temporal: series, priority: required,    why: "yearly built-up / land use classes show expansion"}
+    - {theme: landcover,  temporal: series, priority: optional,    why: "long-record land cover when the period reaches before 2017"}
     - {theme: optical,    temporal: series, priority: recommended, why: "imagery for visual interpretation and change"}
     - {theme: population, temporal: static, priority: recommended, why: "people per cell — growth in context"}
     - {theme: buildings,  temporal: static, priority: optional,    why: "current footprints"}
@@ -78,3 +80,39 @@
   keywords: ["rain(fall)?", "precipitation", "monsoon"]
   needs:
     - {theme: precipitation, temporal: series, priority: required, why: "rainfall totals over the period"}
+
+- id: forest
+  keywords: ["\\bforest", "deforest", "tree cover", "canopy", "logging", "mangrove"]
+  needs:
+    - {theme: forest,    temporal: static, priority: required,    why: "tree cover baseline and year of loss per pixel"}
+    - {theme: landcover, temporal: series, priority: recommended, why: "land cover through time to see what replaced the forest"}
+    - {theme: optical,   temporal: series, priority: optional,    why: "imagery to inspect recent change"}
+
+- id: fire
+  keywords: ["\\bfires?\\b", "wildfire", "\\bburn", "stubble"]
+  needs:
+    - {theme: fire,       temporal: series, priority: required,    why: "mapped burned area by month"}
+    - {theme: vegetation, temporal: series, priority: recommended, why: "vegetation before and after burning"}
+    - {theme: landcover,  temporal: static, priority: recommended, why: "what burned — cropland, forest, grassland"}
+
+- id: heat
+  keywords: ["\\bheat", "temperature", "\\blst\\b", "hot ?spot", "thermal"]
+  needs:
+    - {theme: temperature, temporal: series, priority: required,    why: "land surface temperature day and night"}
+    - {theme: builtup,     temporal: static, priority: recommended, why: "built-up land drives urban heat"}
+    - {theme: vegetation,  temporal: series, priority: optional,    why: "vegetation cools; NDVI explains much of LST"}
+
+- id: soil
+  keywords: ["\\bsoils?\\b", "erosion", "fertility", "organic carbon", "\\bph\\b"]
+  needs:
+    - {theme: soil,      temporal: static, priority: required,    why: "soil properties — carbon, texture, pH"}
+    - {theme: elevation, temporal: static, priority: recommended, why: "slope drives erosion and drainage"}
+    - {theme: landcover, temporal: static, priority: recommended, why: "land use on the soil"}
+
+- id: services
+  keywords: ["hospital", "school", "clinic", "health (care|facilit|access)", "facilit", "service (access|coverage)"]
+  needs:
+    - {theme: facilities, temporal: static, priority: required,    why: "where the services are"}
+    - {theme: transport,  temporal: static, priority: required,    why: "how people reach them"}
+    - {theme: population, temporal: static, priority: recommended, why: "who they serve"}
+    - {theme: boundaries, temporal: static, priority: optional,    why: "administrative units for summaries"}

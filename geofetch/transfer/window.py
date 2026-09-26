@@ -28,7 +28,7 @@ from shapely.geometry.base import BaseGeometry
 
 GDAL_ENV = dict(
     GDAL_DISABLE_READDIR_ON_OPEN="EMPTY_DIR",
-    CPL_VSIL_CURL_ALLOWED_EXTENSIONS=".tif,.tiff",
+    CPL_VSIL_CURL_ALLOWED_EXTENSIONS=".tif,.tiff,.vrt",
     GDAL_HTTP_MERGE_CONSECUTIVE_RANGES="YES",
     GDAL_HTTP_MAX_RETRY="5",
     GDAL_HTTP_RETRY_DELAY="2",
@@ -63,11 +63,29 @@ def _blocks(win: Window, block: tuple[int, int], width: int, height: int) -> lis
     return [Window(c, r, min(bw, width - c), min(bh, height - r)) for r in range(r0, r1, bh) for c in range(c0, c1, bw)]
 
 
-def fetch_window(href: str, aoi_wgs84: BaseGeometry, output: Path, dst_epsg: int, threads: int = 12, nodata: float = 0) -> WindowResult:
+def fill_value(dtype: str, declared: float | None, override: float | None = None) -> float:
+    """Nodata for the output: the file's own if declared, else a registry override, else a value outside
+    the data's plausible range (dtype max for unsigned ints, dtype min for signed ints, -9999 for floats).
+    Never 0 by default — 0 is a valid value in many products (water occurrence, population, elevation)."""
+    if declared is not None:
+        return declared
+    if override is not None:
+        return override
+    dt = np.dtype(dtype)
+    if np.issubdtype(dt, np.unsignedinteger):
+        return float(np.iinfo(dt).max)
+    if np.issubdtype(dt, np.integer):
+        return float(np.iinfo(dt).min)
+    return -9999.0
+
+
+def fetch_window(href: str, aoi_wgs84: BaseGeometry, output: Path, dst_epsg: int, threads: int = 12, nodata: float | None = None) -> WindowResult:
+    """Clip `href` to the AOI. Pixels are copied, never interpolated; if the project CRS differs the grid is
+    reprojected with nearest-neighbour so every output value exists in the source."""
     src_path = f"/vsicurl/{href}" if href.startswith("http") else href
     t0 = time.time()
     with Env(**GDAL_ENV), rasterio.open(src_path) as src:
-        src_crs, src_nodata = src.crs, src.nodata if src.nodata is not None else nodata
+        src_crs, src_nodata = src.crs, fill_value(src.dtypes[0], src.nodata, nodata)
         aoi_src = shape(transform_geom("EPSG:4326", src_crs, mapping(aoi_wgs84)))
         win = from_bounds(*aoi_src.bounds, src.transform).round_offsets().round_lengths()
         win = win.intersection(Window(0, 0, src.width, src.height))

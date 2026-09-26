@@ -11,6 +11,13 @@
 #   coverage      global | list of ISO3 country codes | [minx, miny, maxx, maxy]
 #   analysis_ready true if it can be used directly (no calibration/processing needed)
 #   access        driver-specific. drivers: stac | http | overpass | gdacs
+#                 stac series may set `planner`: optical (cloud-aware scene choice per tile) | sar (same-orbit passes)
+#                 | products (already-composited series: take every product in each window). Default is inferred.
+#                 http modes: window (range reads) | file_per_window | tile_grid (fixed lat/lon tiles) | vector
+#   nodata        optional access.nodata when a product declares none and its valid range includes 0
+#
+# Every entry must be verified against the PROVIDER's own documentation and a live probe
+# (`geofetch sources --check <id>`) before it is merged. Never copy entries from other tools' catalogues.
 
 - id: sentinel-2-l2a
   name: Sentinel-2 L2A surface reflectance
@@ -107,6 +114,7 @@
     collection: jrc-gsw
     assets: {occurrence: occurrence, seasonality: seasonality, recurrence: recurrence}
     default_assets: [occurrence, seasonality]
+    nodata: 255
 
 - id: io-lulc-annual
   name: Impact Observatory annual land use / land cover
@@ -114,7 +122,7 @@
   kind: raster
   shape: series
   resolution_m: 10
-  temporal: {type: series, from: "2017", to: null, revisit_days: 365}
+  temporal: {type: series, from: "2017", to: "2023", revisit_days: 365}
   coverage: global
   license: "CC BY 4.0"
   analysis_ready: true
@@ -127,6 +135,7 @@
     assets: {landcover: data}
     default_assets: [landcover]
     group_by: proj:epsg
+    planner: products
 
 - id: worldpop-constrained-2020
   name: WorldPop constrained population 2020 (100 m)
@@ -250,3 +259,224 @@
   access:
     driver: gdacs
     types: {flood: FL, cyclone: TC, earthquake: EQ, drought: DR, wildfire: WF}
+
+- id: landsat-c2-l2
+  name: Landsat Collection 2 Level-2 surface reflectance (Landsat 4–9)
+  themes: [optical, vegetation, water]
+  kind: raster
+  shape: series
+  resolution_m: 30
+  temporal: {type: series, from: "1982-08", to: null, revisit_days: 8}
+  coverage: global
+  license: "Public domain (USGS)"
+  analysis_ready: true
+  cloud_dependent: true
+  description: The long optical record — back to 1982 — for change over decades; 30 m surface reflectance.
+  access:
+    driver: stac
+    provider: planetary_computer
+    collection: landsat-c2-l2
+    assets: {red: red, green: green, blue: blue, nir: nir08, swir16: swir16, swir22: swir22, qa: qa_pixel}
+    default_assets: [red, nir]
+    theme_assets: {vegetation: [red, nir], water: [green, nir, swir16], optical: [red, green, blue, nir]}
+    group_by: [landsat:wrs_path, landsat:wrs_row]
+    planner: optical
+
+- id: modis-ndvi-16day
+  name: MODIS vegetation indices, 16-day composite, 250 m (MOD13Q1/MYD13Q1 v6.1)
+  themes: [vegetation]
+  kind: raster
+  shape: series
+  resolution_m: 250
+  temporal: {type: series, from: "2000-02", to: null, revisit_days: 16}
+  coverage: global
+  license: "No restrictions (NASA LP DAAC)"
+  analysis_ready: true
+  cloud_dependent: false
+  description: Ready-made NDVI/EVI composites — cloud-screened by the provider, so usable through the monsoon; coarser than Sentinel-2.
+  access:
+    driver: stac
+    provider: planetary_computer
+    collection: modis-13Q1-061
+    assets: {ndvi: 250m_16_days_NDVI, evi: 250m_16_days_EVI, reliability: 250m_16_days_pixel_reliability}
+    default_assets: [ndvi, reliability]
+    group_by: modis:tile-id
+    planner: products
+
+- id: modis-lst-8day
+  name: MODIS land surface temperature, 8-day, 1 km (MOD11A2/MYD11A2 v6.1)
+  themes: [temperature]
+  kind: raster
+  shape: series
+  resolution_m: 1000
+  temporal: {type: series, from: "2000-02", to: null, revisit_days: 8}
+  coverage: global
+  license: "No restrictions (NASA LP DAAC)"
+  analysis_ready: true
+  cloud_dependent: false
+  description: Day and night land surface temperature (Kelvin × 50); the standard product for heat and urban heat islands.
+  access:
+    driver: stac
+    provider: planetary_computer
+    collection: modis-11A2-061
+    assets: {lst_day: LST_Day_1km, lst_night: LST_Night_1km}
+    default_assets: [lst_day, lst_night]
+    group_by: modis:tile-id
+    planner: products
+
+- id: modis-burned-area
+  name: MODIS burned area, monthly, 500 m (MCD64A1 v6.1)
+  themes: [fire]
+  kind: raster
+  shape: series
+  resolution_m: 500
+  temporal: {type: series, from: "2000-11", to: "2025-07", revisit_days: 30}
+  coverage: global
+  license: "No restrictions (NASA LP DAAC)"
+  analysis_ready: true
+  cloud_dependent: false
+  description: Monthly burn date per pixel. Published on Planetary Computer until July 2025 (MODIS end of mission).
+  access:
+    driver: stac
+    provider: planetary_computer
+    collection: modis-64A1-061
+    assets: {burn_date: Burn_Date, uncertainty: Burn_Date_Uncertainty}
+    default_assets: [burn_date]
+    group_by: modis:tile-id
+    planner: products
+
+- id: esa-cci-landcover
+  name: ESA CCI / C3S land cover, annual, 300 m (1992–2020)
+  themes: [landcover, builtup, forest]
+  kind: raster
+  shape: series
+  resolution_m: 300
+  temporal: {type: series, from: "1992", to: "2020", revisit_days: 365}
+  coverage: global
+  license: "Free with attribution (ESA CCI / Copernicus C3S)"
+  analysis_ready: true
+  cloud_dependent: false
+  description: Consistent yearly land cover over three decades — for long-term change where 10 m products do not reach back.
+  access:
+    driver: stac
+    provider: planetary_computer
+    collection: esa-cci-lc
+    assets: {landcover: lccs_class}
+    default_assets: [landcover]
+    group_by: esa_cci_lc:tile
+    planner: products
+
+- id: alos-palsar-mosaic
+  name: ALOS/ALOS-2 PALSAR annual L-band mosaic, 25 m (2015–2021)
+  themes: [sar, forest]
+  kind: raster
+  shape: series
+  resolution_m: 25
+  temporal: {type: series, from: "2015", to: "2021", revisit_days: 365}
+  coverage: global
+  license: "Free with attribution (JAXA)"
+  analysis_ready: true
+  cloud_dependent: false
+  description: Yearly L-band radar (HH/HV) mosaics; penetrates canopy, useful for forest structure and change.
+  access:
+    driver: stac
+    provider: planetary_computer
+    collection: alos-palsar-mosaic
+    assets: {hh: HH, hv: HV}
+    default_assets: [hh, hv]
+    planner: products
+
+- id: nasadem
+  name: NASADEM (SRTM reprocessed), 30 m
+  themes: [elevation]
+  kind: raster
+  shape: layer
+  resolution_m: 30
+  temporal: {type: static, from: "2000", to: "2000"}
+  coverage: [-180, -56, 180, 60]
+  license: "Public domain (NASA)"
+  analysis_ready: true
+  description: Void-filled SRTM elevation from February 2000; an alternative to Copernicus DEM.
+  access:
+    driver: stac
+    provider: planetary_computer
+    collection: nasadem
+    assets: {elevation: elevation}
+    default_assets: [elevation]
+
+- id: soilgrids
+  name: ISRIC SoilGrids 2.0, 250 m (topsoil 0–5 cm)
+  themes: [soil]
+  kind: raster
+  shape: layer
+  resolution_m: 250
+  temporal: {type: static, from: "2020", to: "2020"}
+  coverage: global
+  license: "CC BY 4.0 (ISRIC)"
+  analysis_ready: true
+  description: Predicted soil properties — organic carbon, clay, sand, pH — mapped globally at 250 m.
+  access:
+    driver: http
+    mode: window
+    urls:
+      soc: "https://files.isric.org/soilgrids/latest/data/soc/soc_0-5cm_mean.vrt"
+      clay: "https://files.isric.org/soilgrids/latest/data/clay/clay_0-5cm_mean.vrt"
+      sand: "https://files.isric.org/soilgrids/latest/data/sand/sand_0-5cm_mean.vrt"
+      phh2o: "https://files.isric.org/soilgrids/latest/data/phh2o/phh2o_0-5cm_mean.vrt"
+    assets: {soc: file, clay: file, sand: file, phh2o: file}
+
+- id: hansen-gfc
+  name: Hansen/UMD Global Forest Change 2000–2025 (v1.13), 30 m
+  themes: [forest]
+  kind: raster
+  shape: layer
+  resolution_m: 30
+  temporal: {type: static, from: "2000", to: "2025"}
+  coverage: [-180, -60, 180, 80]
+  license: "CC BY 4.0 (Hansen/UMD/Google/USGS/NASA)"
+  analysis_ready: true
+  description: Tree cover in 2000 and the year of forest loss for every 30 m pixel through 2025.
+  access:
+    driver: http
+    mode: tile_grid
+    tile_deg: 10
+    url: "https://storage.googleapis.com/earthenginepartners-hansen/GFC-2025-v1.13/Hansen_GFC-2025-v1.13_{layer}_{tile}.tif"
+    assets: {treecover2000: treecover2000, lossyear: lossyear}
+    nodata: 255
+
+- id: geoboundaries-adm1
+  name: geoBoundaries ADM1 (states / provinces)
+  themes: [boundaries]
+  kind: vector
+  shape: layer
+  resolution_m: null
+  temporal: {type: static, from: "2023", to: "2023"}
+  coverage: global
+  license: "CC BY 4.0"
+  analysis_ready: true
+  description: Open administrative boundaries, first level.
+  access:
+    driver: http
+    mode: vector
+    url: "https://www.geoboundaries.org/api/current/gbOpen/{iso3}/ADM1/"
+    url_key: gjDownloadURL
+    assets: {boundaries: file}
+
+- id: osm-facilities
+  name: OpenStreetMap health and education facilities
+  themes: [facilities]
+  kind: vector
+  shape: query
+  resolution_m: null
+  temporal: {type: static, from: "live", to: null}
+  coverage: global
+  license: "ODbL"
+  analysis_ready: true
+  description: Hospitals, clinics, doctors, schools, colleges and universities as points (building centres for areas).
+  access:
+    driver: overpass
+    query: 'nwr["amenity"~"^(hospital|clinic|doctors|school|college|university)$"]({bbox});'
+    out: center
+    geometry: point
+    assets: {facilities: file}
+    max_area_km2: 50000

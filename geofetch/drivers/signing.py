@@ -6,6 +6,7 @@ before expiry, so long runs re-sign transparently. No account is needed for publ
 
 from __future__ import annotations
 
+import calendar
 import time
 from urllib.parse import urlparse
 
@@ -33,6 +34,6 @@ def sign(href: str) -> str:
         r.raise_for_status()
         d = r.json()
         tok = d["token"]
-        exp = time.mktime(time.strptime(d["msft:expiry"], "%Y-%m-%dT%H:%M:%SZ")) - time.timezone
+        exp = calendar.timegm(time.strptime(d["msft:expiry"], "%Y-%m-%dT%H:%M:%SZ"))
         _cache[key] = (tok, exp)
     return f"{href}?{tok}"

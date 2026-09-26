@@ -75,12 +75,12 @@ def execute(project: Project, plan: dict, threads: int = 12, progress: Callable[
                 elif plan["kind"] == "file_series" or e.get("whole_file"):
                     local = http_driver.download_file(a["href"], project.cache_dir / "files" / Path(a["href"]).name)
                     out = _out(project, source, e, key, ".tif")
-                    r = fetch_window(str(local), aoi.geometry, out, epsg, threads=threads)
+                    r = fetch_window(str(local), aoi.geometry, out, epsg, threads=threads, nodata=source.access.get("nodata"))
                     assets_done[key] = {"path": out, "media_type": COG_TYPE, "size": r.output_bytes, "sha256": r.sha256, "source_href": a["href"],
                                         "seconds": r.seconds, "shape": [r.height, r.width]}
                 else:  # scenes / layer over HTTP range reads
                     out = _out(project, source, e, key, ".tif")
-                    r = fetch_window(sign(a["href"]), aoi.geometry, out, epsg, threads=threads)
+                    r = fetch_window(sign(a["href"]), aoi.geometry, out, epsg, threads=threads, nodata=source.access.get("nodata"))
                     assets_done[key] = {"path": out, "media_type": COG_TYPE, "size": r.output_bytes, "sha256": r.sha256, "source_href": a["href"],
                                         "seconds": r.seconds, "shape": [r.height, r.width]}
                 done += 1

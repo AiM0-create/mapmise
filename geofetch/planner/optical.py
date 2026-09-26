@@ -46,6 +46,10 @@ def monthly_windows(start: date, end: date) -> list[Window]:
     return windows
 
 
+def yearly_windows(start: date, end: date) -> list[Window]:
+    return [Window(str(y), max(date(y, 1, 1), start), min(date(y, 12, 31), end)) for y in range(start.year, end.year + 1)]
+
+
 def pre_post_windows(event: date, pre_days: int = 30, post_days: int = 30, gap_days: int = 0) -> list[Window]:
     """Two windows around an event date: [event−pre, event−gap] and [event+gap, event+post]."""
     pre_end = date.fromordinal(event.toordinal() - gap_days)
