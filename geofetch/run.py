@@ -16,6 +16,7 @@ from geofetch.catalog import COG_TYPE, GPKG_TYPE, Catalog
 from geofetch.drivers import http as http_driver
 from geofetch.drivers import overpass as overpass_driver
 from geofetch.drivers.signing import sign
+from geofetch.geo import shared_cache
 from geofetch.project import Project
 from geofetch.registry import Source, load_sources
 from geofetch.transfer.window import fetch_window, sha256_of
@@ -35,6 +36,13 @@ def _with_retry(fn, attempts: int = 4, first_delay: float = 5.0):
                 raise
             time.sleep(delay)
             delay *= 2
+
+
+def _cache_name(url: str) -> str:
+    """Stable, collision-free file name for a URL in the shared cache: host + path, flattened."""
+    from urllib.parse import urlparse
+    u = urlparse(url)
+    return (u.netloc + u.path).replace("/", "__")
 
 
 def gaps(project: Project, plan: dict) -> list[dict]:
@@ -89,7 +97,7 @@ def execute(project: Project, plan: dict, threads: int = 12, progress: Callable[
                     assets_done[key] = {"path": out, "media_type": GPKG_TYPE, "size": out.stat().st_size, "sha256": sha256_of(out),
                                         "source_href": a["href"], "seconds": (datetime.now() - t0).total_seconds()}
                 elif plan["kind"] == "file_series" or e.get("whole_file"):
-                    local = _with_retry(lambda: http_driver.download_file(a["href"], project.cache_dir / "files" / Path(a["href"]).name))
+                    local = _with_retry(lambda: http_driver.download_file(a["href"], shared_cache() / _cache_name(a["href"])))
                     out = _out(project, source, e, key, ".tif")
                     r = fetch_window(str(local), aoi.geometry, out, epsg, threads=threads, nodata=source.access.get("nodata"))
                     assets_done[key] = {"path": out, "media_type": COG_TYPE, "size": r.output_bytes, "sha256": r.sha256, "source_href": a["href"],

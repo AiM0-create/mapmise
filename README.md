@@ -127,7 +127,9 @@ chitradurga-2026-08/
   data/<source>/static/<source>_<layer>.gpkg vectors, clipped
   data/vrt/           per-period mosaics built by `geofetch open`
   REPORT.md           the acquisition record in plain language
-  .cache/             searches, sizes, whole-file downloads; safe to delete
+  .cache/             catalogue searches and file sizes; safe to delete
+
+Whole files that are identical across projects (a country population raster, a monthly global rainfall file) are cached once in `~/.cache/geofetch/files` (override with `GEOFETCH_CACHE`).
 ```
 
 Rasters are reprojected with nearest-neighbour resampling, so every output value exists in the source; nothing is interpolated.
