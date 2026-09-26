@@ -133,37 +133,127 @@ def _build_plans(p: Project, resolutions: list[Resolution], start: date, end: da
             p.save_plan(fb["id"], fb)
             plans.append(fb)
             planned.add(alt.id)
+    # automatic complement: years a series plan cannot cover (outside its product's record) go to the next candidate that covers them
+    for pl in list(plans):
+        gap = [w for w in pl["windows"] if w["verdict"] == "out-of-range"]
+        if not gap or pl.get("complement_for"):
+            continue
+        g_start, g_end = min(w["start"] for w in gap), max(w["end"] for w in gap)
+        for n in pl["needs"]:
+            r = by_key.get(f"{n['theme']}:{n['temporal']}")
+            alt = next((c.source for c in (r.candidates if r else []) if c.source.id not in planned and c.source.shape == "series"
+                        and c.source.driver == "stac" and c.source.covers_period(g_start, g_end)), None)
+            if not alt:
+                continue
+            try:
+                cp = scene_plan(aoi, alt, [r.need], _assets_for(alt, [r.need]), date.fromisoformat(g_start), date.fromisoformat(g_end),
+                                p.cache_dir, sizes, event, pre_days, post_days, cloud_max=a.cloud_max, clear_target=a.clear_target, mode=a.mode)
+            except Exception as e:  # noqa: BLE001
+                unmet.append((r.need, f"complement {alt.id} failed: {type(e).__name__}"))
+                continue
+            # keep only the gap windows, so years the primary source covers are not fetched twice
+            labels = {w["label"] for w in gap}
+            full_before = cp["estimate"]["full_bytes"] or 1
+            cp["acquire"] = [e for e in cp["acquire"] if e["window"] in labels]
+            cp["windows"] = [w for w in cp["windows"] if w["label"] in labels]
+            kept = sum(v["size"] or 0 for e in cp["acquire"] for v in e["assets"].values())
+            cp["estimate"] = {"n_assets": sum(len(e["assets"]) for e in cp["acquire"]), "full_bytes": kept,
+                              "windowed_bytes": int(cp["estimate"]["windowed_bytes"] * kept / full_before), "known": True,
+                              "unknown": sum(1 for e in cp["acquire"] for v in e["assets"].values() if v["size"] is None)}
+            filled = [w["label"] for w in cp["windows"] if w["verdict"] != "out-of-range"]
+            cp["id"] = f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{alt.id}"
+            cp["created"], cp["status"], cp["event"] = datetime.now(timezone.utc).isoformat(timespec="seconds"), "proposed", event.isoformat() if event else None
+            cp["complement_for"] = {"source": pl["source"], "gap": _year_ranges(list(labels)), "filled": _year_ranges(filled) if filled else ""}
+            cp["explanations"] = [f"Added automatically: {pl['source']} has no products for {cp['complement_for']['gap']}; "
+                                  f"{alt.name} fills {cp['complement_for']['filled'] or 'none of them'}."] + cp["explanations"]
+            p.save_plan(cp["id"], cp)
+            plans.append(cp)
+            planned.add(alt.id)
+            break
     p.save_size_cache(sizes)
     return plans, unmet
+
+
+def _year_ranges(labels: list[str]) -> str:
+    """['2005','2006','2007','2024','2025'] -> '2005–2007, 2024–2025'"""
+    ys = sorted({int(l[:4]) for l in labels})
+    runs, start = [], None
+    for i, y in enumerate(ys):
+        if start is None:
+            start = y
+        if i == len(ys) - 1 or ys[i + 1] != y + 1:
+            runs.append(f"{start}" if start == y else f"{start}–{y}")
+            start = None
+    return ", ".join(runs)
+
+
+def _verdict_summary(windows: list[dict]) -> str:
+    """Counts per verdict, e.g. 'single×3 composite×1 infeasible×1' — the detail is in the plan file."""
+    order = ["feasible-single", "feasible-composite", "infeasible", "incomplete", "out-of-range"]
+    counts = {v: sum(1 for w in windows if w["verdict"] == v) for v in order}
+    if len(windows) <= 4:
+        return ", ".join(f"{w['label']}={w['verdict'].replace('feasible-', '')}" for w in windows)
+    return " ".join(f"{v.replace('feasible-', '')}×{n}" for v, n in counts.items() if n) + f"  ({windows[0]['label']}…{windows[-1]['label']})"
 
 
 def print_request(plans: list[dict], unmet: list[tuple[Need, str]], verbose: bool = True) -> None:
     total = sum(pl["estimate"]["windowed_bytes"] for pl in plans)
     n_assets = sum(pl["estimate"]["n_assets"] for pl in plans)
-    print(f"\n{'need':28} {'source':26} {'files':>5} {'est.':>8}  verdicts")
+    print(f"\n{'need':28} {'source':30} {'files':>5} {'est.':>8}  verdicts")
     for pl in plans:
         needs = ", ".join(f"{n['theme']}/{n['temporal']}" for n in pl["needs"])
-        est = _gb(pl["estimate"]["windowed_bytes"]) if pl["estimate"]["known"] else "live"
-        verdicts = ", ".join(f"{w['label']}={w['verdict'].replace('feasible-', '')}" for w in pl["windows"])
-        src = pl["source"] + (" ↳fallback" if pl.get("fallback_for") else "")
-        print(f"{needs[:28]:28} {src[:26]:26} {pl['estimate']['n_assets']:5d} {est:>8}  {verdicts}")
+        est = ("≥" if pl["estimate"].get("unknown") else "") + _gb(pl["estimate"]["windowed_bytes"]) if pl["estimate"]["known"] else "live"
+        tag = " ↳fallback" if pl.get("fallback_for") else " ↳complement" if pl.get("complement_for") else ""
+        print(f"{needs[:28]:28} {(pl['source'] + tag)[:30]:30} {pl['estimate']['n_assets']:5d} {est:>8}  {_verdict_summary(pl['windows'])}")
+    met_themes = {n["theme"] for pl in plans for n in pl["needs"]}
     for n, why in unmet:
-        print(f"{(n.theme + '/' + n.temporal)[:28]:28} {'— unmet':26} {'':5} {'':8}  {why}")
-    print(f"\ntotal: {len(plans)} sources, {n_assets} files, ≈ {_gb(total)} to transfer (AOI-windowed; vector queries not counted)")
-    if verbose:
-        print("\nWhy each dataset:")
-        for pl in plans:
-            for n in pl["needs"]:
-                print(f"  {n['theme']}/{n['temporal']} ({n['priority']}) ← {pl['source']}: {n['why']}")
-        for pl in plans:
-            if pl.get("fallback_for"):
-                f = pl["fallback_for"]
-                print(f"  ↳ {pl['source']} added automatically because {f['source']} is infeasible for {', '.join(f['windows'])}")
-        flagged = [(pl["source"], w) for pl in plans for w in pl["windows"] if w["verdict"] in ("infeasible", "incomplete", "feasible-composite")]
-        if flagged:
-            print("\nVerdicts needing your attention:")
-            for sid, w in flagged:
-                print(f"  {sid} {w['label']}: {w['verdict_text']}")
+        if n.theme in met_themes:
+            why = f"no {n.temporal} source for this period; '{n.theme}' is supplied in another form above"
+        print(f"{(n.theme + '/' + n.temporal)[:28]:28} {'— unmet':30} {'':5} {'':8}  {why}")
+    unknown = sum(pl["estimate"].get("unknown", 0) for pl in plans)
+    print(f"\ntotal: {len(plans)} sources, {n_assets} files, ≈ {_gb(total)} to transfer (AOI-windowed; vector queries not counted"
+          + (f"; {unknown} file sizes unknown — servers did not answer" if unknown else "") + ")")
+    if not verbose:
+        return
+    print("\nWhy each dataset:")
+    for pl in plans:
+        for n in pl["needs"]:
+            print(f"  {n['theme']}/{n['temporal']} ({n['priority']}) ← {pl['source']}: {n['why']}")
+        if pl.get("fallback_for"):
+            f = pl["fallback_for"]
+            ws = f["windows"]
+            print(f"    ↳ added automatically: {f['source']} is infeasible (cloud) for {', '.join(ws[:4])}{f' and {len(ws) - 4} more' if len(ws) > 4 else ''}")
+        if pl.get("complement_for"):
+            c = pl["complement_for"]
+            print(f"    ↳ added automatically: {c['source']} has no products for {c['gap']}; this fills {c['filled'] or 'none of them'}")
+    attention = []
+    for pl in plans:
+        if pl.get("complement_for"):
+            continue  # its gaps are reported against the primary plan below
+        comp = next((q for q in plans if q.get("complement_for", {}).get("source") == pl["source"]), None)
+        filled = {w["label"] for w in comp["windows"] if w["verdict"] != "out-of-range"} if comp else set()
+        bad = [w for w in pl["windows"] if w["verdict"] in ("infeasible", "incomplete", "feasible-composite")]
+        oor = [w["label"] for w in pl["windows"] if w["verdict"] == "out-of-range" and w["label"] not in filled]
+        for w in bad[:3]:
+            attention.append(f"  {pl['source']} {w['label']}: {w['verdict_text']}")
+        if len(bad) > 3:
+            attention.append(f"  {pl['source']}: … {len(bad) - 3} more windows (details in the plan file)")
+        if oor:
+            needs = ", ".join(f"{n['theme']}/{n['temporal']}" for n in pl["needs"])
+            attention.append(f"  {needs}: no registered source has data for {_year_ranges(oor)}")
+    if attention:
+        print("\nVerdicts needing your attention:")
+        print("\n".join(attention))
+
+
+def _vocabulary() -> set[str]:
+    """Every plain word used in the ask rules' keywords (e.g. hospital, flood, reservoir) — never a place name on its own."""
+    from geofetch.registry import load_ask_rules
+    words = set()
+    for r in load_ask_rules():
+        for k in r.keywords:
+            words |= set(re.findall(r"[a-z]{3,}", k.replace("\\b", " ").lower()))
+    return words
 
 
 def _slug(text: str) -> str:
@@ -182,7 +272,7 @@ def _open_or_create_project(a: argparse.Namespace, text: str, period: Period | N
         name = Path(a.aoi).stem
         root = Path(a.project or f"./{_slug(name)}-{start:%Y-%m}")
         return Project.init(root, name, text, Path(a.aoi), start, end), f"file {a.aoi}"
-    queries = [a.place] if a.place else place_candidates(text, period)
+    queries = [a.place] if a.place else place_candidates(text, period, _vocabulary())
     if not queries:
         raise SystemExit("no place found in the ask; say where (\"… in Chitradurga …\"), or pass --place NAME or --aoi FILE")
     last_err = None

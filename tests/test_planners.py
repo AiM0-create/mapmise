@@ -63,3 +63,21 @@ def test_sar_planner_reports_missing_window(aoi):
     items = [_s1("A_pre", 63, "descending", 3, 75.9, 77.1)]
     plan = plan_sar(aoi, items, pre_post_windows(date(2026, 8, 12), 30, 30), ["vv"], reference=None)
     assert plan.windows[1].verdict == "incomplete"
+
+
+def test_overlapping_tiles_weak_tile_does_not_claim_the_aoi(aoi):
+    """Landsat-style overlap: tile 'A' sorts first alphabetically but its real footprint barely touches the AOI;
+    tile 'B' images the whole AOI. B must carry the AOI, A must be dropped, and the verdict must not be 'incomplete'."""
+    minx, miny, maxx, maxy = aoi.bbox
+
+    def it(iid, group, geom, day, cc):
+        return Item("landsat-c2-l2", iid, datetime(2020, 3, day, tzinfo=timezone.utc), geom, cc, group, None, None, 32643,
+                    None, {"red": {"href": f"https://x/{iid}.tif"}})
+    sliver = box(maxx - 0.02, miny, maxx + 1.0, maxy)            # A: only the eastern edge
+    whole = box(minx - 0.5, miny - 0.5, maxx + 0.5, maxy + 0.5)   # B: everything
+    items = [it("A1", "143/051", sliver, 5, 0.0), it("B1", "144/051", whole, 6, 5.0), it("B2", "144/051", whole, 22, 40.0)]
+    plan = plan_optical(aoi, items, monthly_windows(date(2020, 3, 1), date(2020, 3, 31)), ["red"])
+    assert [t.tile for t in plan.tiles] == ["144/051"]
+    w = plan.windows[0]
+    assert w.verdict == "feasible-single" and w.single_observed_coverage > 0.99 and w.single_clear_coverage > 0.9
+    assert plan.acquire() == [("2020-03", "B1")]

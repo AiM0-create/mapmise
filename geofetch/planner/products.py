@@ -17,7 +17,10 @@ from geofetch.drivers.stac import Item
 from geofetch.planner.optical import Candidate, Plan, Selection, TileInfo, Window, WindowReport, _pct
 
 
-def plan_products(aoi: AOI, items: list[Item], windows: list[Window], bands: list[str], min_coverage: float = 0.9) -> Plan:
+def plan_products(aoi: AOI, items: list[Item], windows: list[Window], bands: list[str], min_coverage: float = 0.9,
+                  one_per_window: bool = False) -> Plan:
+    """one_per_window: for long periods planned per year, keep the single best product per tile and window
+    (lowest provider cloud flag, then closest to mid-window) instead of every 8/16-day product."""
     aoi_ea = to_equal_area(aoi.geometry)
     aoi_area = aoi_ea.area
     items = [it for it in items if it.geometry.intersects(aoi.geometry)]
@@ -30,6 +33,11 @@ def plan_products(aoi: AOI, items: list[Item], windows: list[Window], bands: lis
         by_group: dict[str, list[Item]] = defaultdict(list)
         for it in w_items:
             by_group[it.group or "all"].append(it)
+        if one_per_window:
+            mid = w.start + (w.end - w.start) / 2
+            for g, lst in by_group.items():
+                by_group[g] = [min(lst, key=lambda x: (x.cloud_cover if x.cloud_cover is not None else 0, abs((x.datetime.date() - mid).days)))]
+            w_items = [it for lst in by_group.values() for it in lst]
         cov = unary_union([fp[it.id] for it in w_items]).intersection(aoi_ea).area / aoi_area if w_items else 0.0
         for g in groups:
             for it in sorted(by_group.get(g, []), key=lambda x: x.datetime):

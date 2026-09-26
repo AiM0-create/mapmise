@@ -170,22 +170,38 @@ def plan_optical(
     items = [it for it in items if it.group and it.geometry.intersects(aoi.geometry)]
     fp_ea = {it.id: to_equal_area(it.geometry) for it in items}
 
-    # 2. tiles: extent, AOI intersection, exclusive share
+    # 2. tiles. Two geometries per tile:
+    #    data extent = union of real footprints (what the tile actually images) — drives coverage;
+    #    grid extent = proj:bbox of the raster (what the file spans) — drives the windowed byte estimate.
+    #    Tiles overlap (MGRS ~10 km, Landsat paths much more), so each tile claims the AOI area it covers
+    #    that better tiles have not already claimed; tiles left with < 1 % of the AOI are redundant and dropped.
     by_tile: dict[str, list[NormalisedItem]] = defaultdict(list)
     for it in items:
         by_tile[it.group].append(it)
+    data_extent = {t: unary_union([fp_ea[i.id] for i in lst]) for t, lst in by_tile.items()}
+    tile_inter = {t: data_extent[t].intersection(aoi_ea) for t in by_tile}
+
+    def quality(t: str) -> float:  # AOI area imaged × mean footprint coverage of that area across all scenes
+        inter = tile_inter[t]
+        if inter.area == 0:
+            return 0.0
+        return inter.area * sum(fp_ea[i.id].intersection(inter).area for i in by_tile[t]) / (inter.area * len(by_tile[t]))
+
     tiles: list[TileInfo] = []
     tile_aoi: dict[str, BaseGeometry] = {}
+    dropped: list[str] = []
     covered = None
-    for tile in sorted(by_tile):
-        extent, source = _tile_extent(by_tile[tile])
-        inter = extent.intersection(aoi_ea)
-        if inter.area < 1e6:  # < 1 km² of AOI: sliver, ignore
-            continue
+    for tile in sorted(by_tile, key=lambda t: (-quality(t), t)):
+        inter = tile_inter[tile]
         exclusive = inter if covered is None else inter.difference(covered)
+        if exclusive.area < 0.01 * aoi_area:
+            dropped.append(tile)
+            continue
         covered = inter if covered is None else covered.union(inter)
+        grid, source_of_extent = _tile_extent(by_tile[tile])
         tile_aoi[tile] = inter
-        tiles.append(TileInfo(tile, extent.area / 1e6, inter.area / 1e6, exclusive.area / 1e6, inter.area / extent.area, source))
+        tiles.append(TileInfo(tile, grid.area / 1e6, inter.area / 1e6, exclusive.area / 1e6,
+                              min(1.0, grid.intersection(aoi_ea).area / grid.area) if grid.area else 1.0, source_of_extent))
     excl = {t.tile: t.exclusive_km2 * 1e6 for t in tiles}
 
     def observed(fps: list[BaseGeometry]) -> float:
@@ -234,8 +250,10 @@ def plan_optical(
         naive = [it for it in w_items if it.cloud_cover is not None and it.cloud_cover <= cloud_max]
         single_clear_f, comp_clear_f = single_clear / aoi_area, comp_clear / aoi_area
         n_single = len(tiles) - missing
-        if missing:
-            verdict, text = "incomplete", f"{missing} of {len(tiles)} tiles have no acquisition in this window"
+        obs = observed(sel_fps)
+        if obs < min_coverage:
+            verdict, text = "incomplete", (f"scenes in this window image only {_pct(obs)} of the AOI"
+                                           + (f" ({missing} of {len(tiles)} tiles had no acquisition)" if missing else ""))
         elif single_clear_f >= clear_target:
             verdict, text = "feasible-single", f"one scene per tile reaches {_pct(single_clear_f)} expected clear coverage"
         elif comp_clear_f >= clear_target:
@@ -250,7 +268,7 @@ def plan_optical(
 
     explanations = [
         f"{source}: optical scenes, bands {', '.join(bands)}.",
-        f"AOI intersects {len(tiles)} MGRS tiles; one scene per tile per window is the minimum for a complete mosaic.",
+        f"AOI needs {len(tiles)} tile(s) for a complete mosaic" + (f" (overlapping tile(s) {', '.join(dropped)} add < 1% and are not used)" if dropped else "") + ".",
         f"Selection rule per tile and window: maximise footprint coverage × (1 − cloud cover). "
         f"The {cloud_max:.0f}% cloud threshold is advisory: the best available scene is proposed even when it exceeds it, and flagged.",
         f"Composite mode adds scenes best-first until expected clear coverage ≥ {_pct(clear_target)} "

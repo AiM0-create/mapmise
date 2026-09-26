@@ -35,28 +35,34 @@ from geofetch.registry import Need, Source
 from geofetch.transfer.window import GDAL_ENV
 
 WINDOW_OVERHEAD = 2_000_000
+LONG_PERIOD_DAYS = 548  # beyond ~18 months, series are planned per year (one clear scene/product per tile per year)
 
 
 def _need_dicts(needs: list[Need]) -> list[dict]:
     return [{"theme": n.theme, "temporal": n.temporal, "priority": n.priority, "why": n.why, "rule": n.rule} for n in needs]
 
 
-def _sizes(hrefs: dict[str, str], cache: dict[str, int], workers: int = 16) -> dict[str, int]:
-    """HEAD every href not in cache (signing Planetary Computer blobs). cache is updated in place."""
-    todo = {k: h for k, h in hrefs.items() if k not in cache}
+def _sizes(hrefs: dict[str, str], cache: dict[str, int], workers: int = 16) -> dict[str, int | None]:
+    """HEAD every href not in cache (signing Planetary Computer blobs). Only real sizes are cached;
+    a failed or size-less answer is None ("unknown"), never 0, and is retried next time."""
+    todo = {k: h for k, h in hrefs.items() if not cache.get(k)}
 
     def head(kv):
         k, h = kv
-        try:
-            r = httpx.head(sign(h), headers=UA, timeout=30, follow_redirects=True)
-            return k, int(r.headers.get("content-length", 0))
-        except httpx.HTTPError:
-            return k, 0
+        for _ in range(2):
+            try:
+                r = httpx.head(sign(h), headers=UA, timeout=45, follow_redirects=True)
+                if r.status_code == 200 and r.headers.get("content-length"):
+                    return k, int(r.headers["content-length"])
+            except httpx.HTTPError:
+                pass
+        return k, None
 
     with ThreadPoolExecutor(workers) as ex:
         for k, n in ex.map(head, todo.items()):
-            cache[k] = n
-    return {k: cache[k] for k in hrefs}
+            if n:
+                cache[k] = n
+    return {k: cache.get(k) for k in hrefs}
 
 
 def _windows_for(need_temporal: str, start: date, end: date, event: date | None, pre_days: int, post_days: int, yearly: bool = False) -> list[Window]:
@@ -71,7 +77,8 @@ def scene_plan(aoi: AOI, source: Source, needs: list[Need], assets: list[str], s
                size_cache: dict[str, int], event: date | None = None, pre_days: int = 30, post_days: int = 30,
                cloud_max: float = 20.0, clear_target: float = 0.8, mode: str = "single") -> dict:
     temporal = "pair" if any(n.temporal == "pair" for n in needs) else "series"
-    windows = _windows_for(temporal, start, end, event, pre_days, post_days, yearly=source.yearly and temporal != "pair")
+    yearly = temporal != "pair" and (source.yearly or (end - start).days > LONG_PERIOD_DAYS)
+    windows = _windows_for(temporal, start, end, event, pre_days, post_days, yearly=yearly)
     q = stac_driver.build_query(source, aoi.bbox, windows[0].start.isoformat(), windows[-1].end.isoformat(), assets)
     items, record = stac_driver.search(source, q, cache_dir)
     if source.planner == "optical":
@@ -80,7 +87,7 @@ def scene_plan(aoi: AOI, source: Source, needs: list[Need], assets: list[str], s
         ref = {"pre": event, "post": event} if event else None
         sp = plan_sar(aoi, items, windows, assets, same_orbit=(temporal == "pair"), reference=ref)
     else:
-        sp = plan_products(aoi, items, windows, assets)
+        sp = plan_products(aoi, items, windows, assets, one_per_window=yearly and not source.yearly)
     by_id = {it.id: it for it in items}
     frac = {t.tile: t.aoi_fraction_of_tile for t in sp.tiles}
     acquire = []
@@ -90,21 +97,33 @@ def scene_plan(aoi: AOI, source: Source, needs: list[Need], assets: list[str], s
                         "assets": {a: {"href": it.assets[a]["href"], "size": None} for a in assets if a in it.assets}})
     hrefs = {f"{e['item_id']}/{a}": v["href"] for e in acquire for a, v in e["assets"].items()}
     sizes = _sizes(hrefs, size_cache)
-    full = windowed = 0
+    full = windowed = unknown = 0
     for e in acquire:
         f = frac.get(e["group"], 1.0) if source.planner == "optical" else _footprint_fraction(aoi, by_id[e["item_id"]].geometry)
         for a, v in e["assets"].items():
-            v["size"] = sizes.get(f"{e['item_id']}/{a}", 0)
+            v["size"] = sizes.get(f"{e['item_id']}/{a}")
+            if v["size"] is None:
+                unknown += 1
+                continue
             full += v["size"]
             windowed += int(v["size"] * f) + WINDOW_OVERHEAD
     return {
         "kind": "scenes", "source": source.id, "needs": _need_dicts(needs), "temporal": temporal, "assets": assets, "mode": mode,
-        "windows": [{"label": w.window, "verdict": w.verdict, "verdict_text": w.verdict_text, "n_available": w.n_scenes_available,
-                     "observed": w.single_observed_coverage, "clear": w.single_clear_coverage, "composite_scenes": w.composite_scenes,
-                     "composite_clear": w.composite_clear_coverage, "naive_scenes": w.naive_scenes} for w in sp.windows],
-        "acquire": acquire, "estimate": {"n_assets": len(hrefs), "full_bytes": full, "windowed_bytes": windowed, "known": True},
+        "step": "pair" if temporal == "pair" else ("yearly" if yearly else "monthly"),
+        "windows": [_window_dict(source, win, w) for win, w in zip(windows, sp.windows)],
+        "acquire": acquire, "estimate": {"n_assets": len(hrefs), "full_bytes": full, "windowed_bytes": windowed, "known": True, "unknown": unknown},
         "explanations": sp.explanations, "query": record, "detail": sp.to_dict(),
     }
+
+
+def _window_dict(source: Source, win: Window, w) -> dict:
+    d = {"label": w.window, "start": win.start.isoformat(), "end": win.end.isoformat(), "verdict": w.verdict, "verdict_text": w.verdict_text,
+         "n_available": w.n_scenes_available, "observed": w.single_observed_coverage, "clear": w.single_clear_coverage,
+         "composite_scenes": w.composite_scenes, "composite_clear": w.composite_clear_coverage, "naive_scenes": w.naive_scenes}
+    frm, to = str(source.temporal.get("from") or "0000"), source.temporal.get("to")
+    if w.n_scenes_available == 0 and (win.end.isoformat()[:len(frm)] < frm or (to and win.start.isoformat()[:len(str(to))] > str(to))):
+        d["verdict"], d["verdict_text"] = "out-of-range", f"outside this product's record ({frm} → {to or 'now'})"
+    return d
 
 
 def _footprint_fraction(aoi: AOI, footprint) -> float:
@@ -156,17 +175,20 @@ def layer_plan(aoi: AOI, source: Source, needs: list[Need], assets: list[str], c
         raise ValueError(f"layer_plan cannot handle {source.id} ({source.driver}/{a.get('mode')})")
     hrefs = {f"{e['item_id']}/{k}": v["href"] for e in acquire for k, v in e["assets"].items()}
     sizes = _sizes(hrefs, size_cache)
-    full = windowed = 0
+    full = windowed = unknown = 0
     for e in acquire:
         for k, v in e["assets"].items():
-            v["size"] = sizes.get(f"{e['item_id']}/{k}", 0)
+            v["size"] = sizes.get(f"{e['item_id']}/{k}")
+            if v["size"] is None:
+                unknown += 1
+                continue
             full += v["size"]
             windowed += int(v["size"] * e["fraction"]) + WINDOW_OVERHEAD
     return {
         "kind": "layer", "source": source.id, "needs": _need_dicts(needs), "temporal": "static", "assets": assets, "mode": "single",
         "windows": [{"label": "static", "verdict": "feasible-single" if acquire else "incomplete",
                      "verdict_text": f"{len(acquire)} file(s) intersect the AOI" if acquire else "no tile intersects the AOI"}],
-        "acquire": acquire, "estimate": {"n_assets": len(hrefs), "full_bytes": full, "windowed_bytes": windowed, "known": True},
+        "acquire": acquire, "estimate": {"n_assets": len(hrefs), "full_bytes": full, "windowed_bytes": windowed, "known": True, "unknown": unknown},
         "explanations": [f"{source.name}: {source.description}",
                          "Static layer — whole file downloaded once to the project cache (server does not support range reads), then clipped." if any(e.get("whole_file") for e in acquire)
                          else "Static layer — only the AOI window of each file is transferred."],
@@ -185,10 +207,10 @@ def file_series_plan(aoi: AOI, source: Source, needs: list[Need], assets: list[s
                         "assets": {k: {"href": url, "size": None} for k in assets}})
     hrefs = {f"{e['item_id']}/{k}": v["href"] for e in acquire for k, v in e["assets"].items()}
     sizes = _sizes(hrefs, size_cache)
-    missing = [e for e in acquire if all(sizes.get(f"{e['item_id']}/{k}", 0) == 0 for k in e["assets"])]
+    missing = [e for e in acquire if all(not sizes.get(f"{e['item_id']}/{k}") for k in e["assets"])]
     for e in acquire:
         for k, v in e["assets"].items():
-            v["size"] = sizes.get(f"{e['item_id']}/{k}", 0)
+            v["size"] = sizes.get(f"{e['item_id']}/{k}")
     acquire = [e for e in acquire if e not in missing]
     full = sum(v["size"] for e in acquire for v in e["assets"].values())
     return {

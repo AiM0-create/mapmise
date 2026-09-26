@@ -104,6 +104,9 @@ def normalise(source: Source, feature: dict) -> Item:
     alias = source.access.get("assets", {})
     assets = {c: feature["assets"][k] for c, k in alias.items() if k in feature.get("assets", {})}
     dt = p.get("datetime") or p.get("start_datetime")
+    if p.get("start_datetime") and p.get("end_datetime"):  # composites: date by the middle of the interval they summarise
+        a_, b_ = (datetime.fromisoformat(p[k].replace("Z", "+00:00")) for k in ("start_datetime", "end_datetime"))
+        dt = (a_ + (b_ - a_) / 2).isoformat()
     group_key = source.access.get("group_by")
     bbox = _bbox_from(p) or next((_bbox_from(a) for a in assets.values() if _bbox_from(a)), None)
     return Item(
