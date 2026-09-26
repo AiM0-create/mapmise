@@ -271,6 +271,8 @@ def _open_or_create_project(a: argparse.Namespace, text: str, period: Period | N
     if a.aoi:
         name = Path(a.aoi).stem
         root = Path(a.project or f"./{_slug(name)}-{start:%Y-%m}")
+        if (root / "project.json").exists():
+            return Project.load(root), f"file {a.aoi} — existing project {root} reused"
         return Project.init(root, name, text, Path(a.aoi), start, end), f"file {a.aoi}"
     queries = [a.place] if a.place else place_candidates(text, period, _vocabulary())
     if not queries:
@@ -285,6 +287,8 @@ def _open_or_create_project(a: argparse.Namespace, text: str, period: Period | N
     else:
         raise SystemExit(str(last_err))
     root = Path(a.project or f"./{_slug(place.name)}-{start:%Y-%m}")
+    if (root / "project.json").exists():  # same place and month as an earlier ask: keep adding to that project
+        return Project.load(root), f"“{q}” → {place.display_name} — existing project reused"
     p = Project.create(root, place.name, text, place.geometry, f"OpenStreetMap Nominatim {place.osm} ({place.display_name})", start, end,
                        aoi_attribution="© OpenStreetMap contributors, ODbL 1.0")
     how = f"“{q}” → {place.display_name} ({place.kind}, {place.osm})"
