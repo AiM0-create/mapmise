@@ -13,12 +13,13 @@ from geofetch.planner.sar import plan_sar
 from geofetch.registry import load_sources
 
 ROOT = Path(__file__).resolve().parent.parent
-FIX = json.loads((ROOT / "tests/fixtures/chitradurga_2026-06_2tiles.json").read_text())
+FIXTURES = Path(__file__).resolve().parent / "fixtures"
+FIX = json.loads((FIXTURES / "chitradurga_2026-06_2tiles.json").read_text())
 
 
 @pytest.fixture(scope="module")
 def aoi():
-    return load_aoi(ROOT / "tests/fixtures/chitradurga.geojson", "Chitradurga")
+    return load_aoi(FIXTURES / "chitradurga.geojson", "Chitradurga")
 
 
 @pytest.fixture(scope="module")

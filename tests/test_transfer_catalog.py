@@ -14,6 +14,7 @@ from geofetch.project import Project
 from geofetch.transfer.window import fetch_window, sha256_of
 
 ROOT = Path(__file__).resolve().parent.parent
+FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
 
 @pytest.fixture
@@ -48,7 +49,7 @@ def test_fetch_window_reprojects(synthetic, tmp_path):
 
 
 def test_catalog_add_merge_verify(tmp_path, synthetic):
-    p = Project.init(tmp_path / "proj", "P", "", ROOT / "tests/fixtures/chitradurga.geojson", date(2026, 6, 1), date(2026, 6, 30))
+    p = Project.init(tmp_path / "proj", "P", "", FIXTURES / "chitradurga.geojson", date(2026, 6, 1), date(2026, 6, 30))
     cat = Catalog(p.root, "P")
     r1 = fetch_window(str(synthetic), _aoi(), p.root / "data/src/static/ITEM1_a.tif", 32643, threads=2)
     a1 = {"a": {"path": r1.output, "media_type": COG_TYPE, "size": r1.output_bytes, "sha256": r1.sha256, "source_href": "https://x/a", "seconds": 1.0}}

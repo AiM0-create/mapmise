@@ -1,6 +1,6 @@
 # Product Discovery: Project-Aware Geospatial Data Acquisition
 
-Status: discovery complete, **qualified GO** (see §21). E1 and E2 executed 2026-09-15. **Positioning revised 2026-09-18 (§9a)** after the owner's clarification; the alpha engine described in `README.md` implements that revised shape.
+Status: discovery complete, **qualified GO** (see §21). E1 and E2 executed 2026-09-15. Positioning revised 2026-09-18 (§9a) and again 2026-09-26 after finding earthlens (§9b). **Alpha 0.1.0a1** implements §9b — see `README.md` and `docs/EXPERIMENTS.md`.
 Date: 2026-09-15. Environment inspected: empty repo; host has Python 3.14, GDAL 3.12.2, QGIS 4.2.2, Node 22; no aria2/rclone/EODAG installed.
 
 Evidence for claims below comes from (a) live probes against provider APIs run today (scripts in `docs/probes/`, results quoted inline), (b) PyPI metadata, (c) primary docs and repos linked in §22. Where something is an inference rather than a measurement it is marked *(inference)*.
@@ -95,6 +95,8 @@ Legend: ● full, ◐ partial, ○ none.
 | Works offline / without LLM | ● | ● | ● | ○ | ○ | ○ | ○ | ○ | ● |
 | Maintained 2026 | ● | ● | ● | ● | ◐ | ◐ | ◐ | ● | — |
 
+Added 2026-09-26: **earthlens** — persistent project ○, objective→requirements ○ (variable lookup only), real discovery ●, coverage-aware selection ○, size estimate ◐ (dry-run validation), approval ○, local acquisition ●, window-level transfer ◐ (bbox mosaics), gap analysis ○, prep ◐ (clip, GeoTIFF), provenance ○, offline ●, maintained ● (61 providers). See §9b.
+
 No existing tool covers the left column's first two rows plus coverage planning, gap analysis, and provenance together. **No mature product makes this project redundant.** The closest *technical* neighbour is `chuk-mcp-stac` (demo quality, stateless); the closest *product* neighbours are Open Geodata Browser (QGIS, no planning/state) and EODAG (library, no planning/state).
 
 ## 4. User pain points (from docs, forums, and the probes)
@@ -160,6 +162,18 @@ Consequences, and what changed in the design:
 - **Planners by data shape**, not by analysis: dated scenes (optical per tile / radar per orbit), static layers, whole-file series, vector queries.
 - The §17 MVP (one sensor) was the right first step because scene planning is the hardest shape; it is now one planner among four.
 - The moat is the curated registry plus the community that grows it — the thing a generic AI cannot invent correctly.
+
+### 9b. earthlens, and the final wedge (2026-09-26)
+
+[earthlens](https://github.com/serapeum-org/earthlens) (serapeum-org, GPL-3.0, first release May 2026, 0.25.0 on 2026-09-23, 21 releases) is a unified download facade over **61 providers** — imagery (GEE, STAC, Sentinel Hub, openEO, Earthdata, ASF), climate (ERA5, CMIP6), hazards (GDACS, FIRMS), population, soils, OSM, geoBoundaries and more — with `find("precipitation")` variable lookup across providers, dry-run validation, clipping to a bbox, analysis-ready GeoTIFFs and idempotent re-runs.
+
+What it solves: breadth of *access*, better than we can match. What it does not do (from its docs and code examples): no analysis → data reasoning (`find` is a variable-name lookup), no feasibility or coverage verdicts (its STAC backend mosaics every match), no project state or gap reporting, no provenance record or report, no multi-source approval step.
+
+Consequences, decided with the owner:
+- **Do not race on breadth.** Grow the registry by what asks need, not towards a provider count.
+- **Do not depend on earthlens.** Its GPL-3.0 licence would bind this project; the owner chose to stay Apache-2.0. Sources are re-engineered clean-room: each entry is written from the *provider's* documentation and verified by our own live probe (`geofetch sources --check`); no code or catalogue files are copied from earthlens or any other tool.
+- **The wedge is the layer nobody has:** ask → needs with reasons → feasibility per window → automatic fallback and stitching → approval → area-only fetch → catalogue + report. earthlens makes access easier every month; that makes this layer more valuable, not less.
+- THOR (FM4CS; a Sentinel-1/2/3 foundation model, MIT) is downstream: a consumer of prepared local stacks, not a competitor.
 
 ## 10. Proposed architecture
 
