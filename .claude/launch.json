@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "geofetch-gui",
+      "runtimeExecutable": ".venv/bin/geofetch",
+      "runtimeArgs": ["gui", "--port", "8765", "--no-browser", "--workspace", "~/geofetch-demo"],
+      "port": 8765
+    }
+  ]
+}

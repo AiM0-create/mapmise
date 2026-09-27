@@ -2,6 +2,10 @@
 
 ## 0.1.0a1 — first public alpha
 
+- `geofetch gui`: a local app in the browser — ask, plan (untick, swap sources, details per row),
+  fetching with progress, project view with Open in QGIS and the report. Standard library server bound
+  to 127.0.0.1 with a per-session token; Leaflet (BSD-2) bundled for the map.
+
 One prompt in; the right open geospatial data out — clipped, organised, dated and documented, locally.
 
 - `geofetch ask "…"` understands the place (geocoded to a boundary with OpenStreetMap) and the period

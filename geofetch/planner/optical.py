@@ -259,7 +259,7 @@ def plan_optical(
         elif comp_clear_f >= clear_target:
             verdict, text = "feasible-composite", f"single scenes give {_pct(single_clear_f)} clear; a {comp_n}-scene composite reaches {_pct(comp_clear_f)}"
         else:
-            verdict, text = "infeasible", (f"all {len(w_items)} scenes combined reach only {_pct(comp_clear_f)} expected clear "
+            verdict, text = "infeasible", (f"all {len(w_items)} scenes combined reach only {int(100 * comp_clear_f)}% expected clear "
                                            f"(target {_pct(clear_target)}); consider SAR, a longer window, or coarser daily optical")
         reports.append(WindowReport(
             w.label, len(w_items), missing, n_single, observed(sel_fps), single_clear_f, over, comp_n, comp_clear_f,

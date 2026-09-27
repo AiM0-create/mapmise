@@ -86,3 +86,9 @@ def test_zero_valued_pixels_survive_clipping(tmp_path):
 def _aoi_small():
     t = Transformer.from_crs("EPSG:32643", "EPSG:4326", always_xy=True)
     return box(*t.transform(700300, 1598500), *t.transform(701200, 1599500))
+
+
+def test_item_dates_accept_year_month_and_full_dates():
+    from geofetch.run import _when
+    assert _when("2020").year == 2020 and _when("2026-08").month == 8 and _when("2021-04-22").day == 22
+    assert _when("2026-08-15T00:39:45+00:00").day == 15 and _when(None) is None and _when("live") is None

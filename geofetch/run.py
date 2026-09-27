@@ -38,6 +38,19 @@ def _with_retry(fn, attempts: int = 4, first_delay: float = 5.0):
             delay *= 2
 
 
+def _when(value: str | None) -> datetime | None:
+    """Item date from a plan entry: full ISO date/datetime, 'YYYY-MM' or 'YYYY' (static products); None if absent."""
+    if not value or not str(value)[:4].isdigit():
+        return None
+    v = str(value)
+    for fmt in ("%Y-%m-%d", "%Y-%m", "%Y"):
+        try:
+            return datetime.strptime(v[:len(datetime(2000, 1, 1).strftime(fmt))], fmt).replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+    return None
+
+
 def _cache_name(url: str) -> str:
     """Stable, collision-free file name for a URL in the shared cache: host + path, flattened."""
     from urllib.parse import urlparse
@@ -115,8 +128,11 @@ def execute(project: Project, plan: dict, threads: int = 12, progress: Callable[
                 _record(project, plan, {"item": e["item_id"], "asset": key, "status": "failed", "error": str(ex)[:300]})
         if assets_done:
             geom = item_geoms.get(e["item_id"], aoi.geometry).intersection(aoi.geometry)
-            when = datetime.fromisoformat(e["date"]).replace(tzinfo=timezone.utc) if e.get("date") and e["date"][:4].isdigit() else None
-            cat.add(e["item_id"], geom, when, {**props_base, "geofetch:window": e["window"], "geofetch:group": e.get("group")}, assets_done)
+            try:
+                cat.add(e["item_id"], geom, _when(e.get("date")), {**props_base, "geofetch:window": e["window"], "geofetch:group": e.get("group")}, assets_done)
+            except Exception as ex:  # noqa: BLE001 — files are on disk; record the problem and keep going
+                failed += 1
+                _record(project, plan, {"item": e["item_id"], "asset": "*", "status": "failed", "error": f"catalogue entry: {ex}"[:300]})
     plan["execution"]["finished"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
     plan["status"] = "complete" if failed == 0 else "partial"
     project.save_plan(plan["id"], plan)

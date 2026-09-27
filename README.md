@@ -64,7 +64,22 @@ uv venv --python 3.12 .venv && uv pip install -e .      # or: python -m venv .ve
 
 GDAL comes bundled with the rasterio wheel; no separate install is needed. QGIS is optional (for `geofetch open`).
 
-## Use
+## The app
+
+```bash
+geofetch gui
+```
+
+opens geofetch in your browser. It runs entirely on your computer (nothing is hosted anywhere) and has four screens:
+
+1. **Ask** — type what you want to analyse; optional place, dates, event date or your own boundary file.
+2. **Plan** — what it understood, the area on a map, and every dataset with its verdict, size and reasons. Untick what you don't want, swap a source from the dropdown, click a row for the details, then **Fetch**. Files you already have in the project are marked and not counted.
+3. **Fetching** — progress per source; safe to close, it resumes.
+4. **Project** — what you have, what's missing and why, the report, **Open in QGIS**, or ask something else about the same area.
+
+New projects go to `~/geofetch-projects` (change with `--workspace`). Everything the app does is written to the same project files as the command line.
+
+## Use from the command line
 
 ```bash
 geofetch ask "Assess agricultural drought in Chitradurga during the 2026 monsoon"
