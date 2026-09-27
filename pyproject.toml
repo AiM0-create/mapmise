@@ -30,6 +30,11 @@ dependencies = [
     "tokenizers>=0.19",
 ]
 
+[project.urls]
+Homepage = "https://github.com/AiM0-create/mapmise"
+Issues = "https://github.com/AiM0-create/mapmise/issues"
+Changelog = "https://github.com/AiM0-create/mapmise/blob/main/CHANGELOG.md"
+
 [project.optional-dependencies]
 dev = ["pytest>=8"]
 

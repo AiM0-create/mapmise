@@ -33,6 +33,6 @@ cli_exe = EXE(PYZ(cli_a.pure), cli_a.scripts, opts, exclude_binaries=True, name=
 coll = COLLECT(app_exe, app_a.binaries, app_a.datas, cli_exe, cli_a.binaries, cli_a.datas, name="Mapmise", upx=False)
 
 if sys.platform == "darwin":
-    app = BUNDLE(coll, name="Mapmise.app", icon=ICON, bundle_identifier="io.github.mapmise",
+    app = BUNDLE(coll, name="Mapmise.app", icon=ICON, bundle_identifier="io.github.aim0-create.mapmise",
                  info_plist={"CFBundleShortVersionString": __import__("mapmise").__version__, "LSMinimumSystemVersion": "11.0",
                              "NSHighResolutionCapable": True})

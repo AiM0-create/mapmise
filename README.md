@@ -58,7 +58,7 @@ Plenty of excellent tools give you *access* to data: [EODAG](https://github.com/
 
 ### The app (Windows, macOS, Linux)
 
-Download the file for your computer from the [latest release](../../releases/latest):
+Download the file for your computer from the [latest release](https://github.com/AiM0-create/mapmise/releases/latest):
 
 | Computer | File | Then |
 |---|---|---|
@@ -96,7 +96,7 @@ mapmise gui
 Or from source:
 
 ```bash
-git clone https://github.com/GITHUB_USER/mapmise.git && cd mapmise
+git clone https://github.com/AiM0-create/mapmise.git && cd mapmise
 python -m venv .venv && .venv/bin/pip install -e ".[dev]"
 .venv/bin/mapmise --version
 ```
