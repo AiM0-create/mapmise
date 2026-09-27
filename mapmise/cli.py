@@ -202,7 +202,7 @@ def cmd_sources(a: argparse.Namespace) -> int:
 
 def cmd_selftest(a: argparse.Namespace) -> int:
     from mapmise import selftest
-    print(f"mapmise {__import__('mapmise').__version__} self-test")
+    print(f"mapmise {__import__('mapmise').__version__} self-test", flush=True)
     return 0 if selftest.run(offline=a.offline) else 1
 
 
@@ -315,7 +315,10 @@ def main(argv: list[str] | None = None) -> int:
     from mapmise import __version__
     for stream in (sys.stdout, sys.stderr):  # never crash on a console or log that cannot show "→" or "✓"
         if stream is not None and hasattr(stream, "reconfigure"):
-            stream.reconfigure(errors="replace")
+            if stream.isatty():
+                stream.reconfigure(errors="replace")
+            else:  # pipes and log files: UTF-8, as every log viewer expects
+                stream.reconfigure(encoding="utf-8", errors="replace")
     ap = argparse.ArgumentParser(prog="mapmise", description="Say what you want to analyse and where; get the right open data, clipped, organised and documented.")
     ap.add_argument("--version", action="version", version=f"mapmise {__version__}")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -390,6 +393,20 @@ def main(argv: list[str] | None = None) -> int:
 
     a = ap.parse_args(argv)
     return a.fn(a)
+
+
+def run(argv: list[str] | None = None) -> None:
+    """Entry point of the `mapmise` command and the desktop launchers."""
+    code = main(argv)
+    if sys.platform == "win32":
+        # On Windows, GDAL's network layer can hang while Python shuts down after a download, keeping the
+        # process alive forever. Every file is written and closed by now, so leave without that shutdown.
+        import os
+        for stream in (sys.stdout, sys.stderr):
+            if stream is not None:
+                stream.flush()
+        os._exit(code or 0)
+    sys.exit(code)
 
 
 if __name__ == "__main__":

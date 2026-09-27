@@ -39,7 +39,7 @@ Changelog = "https://github.com/AiM0-create/mapmise/blob/main/CHANGELOG.md"
 dev = ["pytest>=8"]
 
 [project.scripts]
-mapmise = "mapmise.cli:main"
+mapmise = "mapmise.cli:run"
 
 [build-system]
 requires = ["hatchling>=1.26"]

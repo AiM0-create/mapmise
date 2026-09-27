@@ -9,6 +9,7 @@ anyone whose installation misbehaves.
 from __future__ import annotations
 
 import tempfile
+import threading
 import time
 import traceback
 from pathlib import Path
@@ -88,20 +89,42 @@ CHECKS: list[tuple[str, Callable[[Path], str], bool]] = [
 ]
 
 
-def run(offline: bool = False, echo: Callable[[str], None] = print) -> bool:
+TIME_LIMIT_S = 180
+
+
+def _print(line: str) -> None:
+    print(line, flush=True)
+
+
+def run(offline: bool = False, echo: Callable[[str], None] = _print) -> bool:
     ok = True
     with tempfile.TemporaryDirectory(prefix="mapmise-selftest-", ignore_cleanup_errors=True) as d:
         for name, fn, needs_net in CHECKS:
             if needs_net and offline:
                 echo(f"  -    {name}: skipped (--offline)")
                 continue
+            echo(f"  ...  {name}")
             t0 = time.time()
-            try:
-                detail = fn(Path(d))
-                echo(f"  ok   {name}: {detail} ({time.time() - t0:.1f} s)")
-            except Exception as e:  # noqa: BLE001 — report every failure, keep checking
+            result: dict = {}
+
+            def attempt(fn=fn):
+                try:
+                    result["detail"] = fn(Path(d))
+                except Exception as e:  # noqa: BLE001 — report every failure, keep checking
+                    result["error"] = f"{type(e).__name__}: {e}"
+                    result["trace"] = traceback.format_exc()
+
+            t = threading.Thread(target=attempt, daemon=True)
+            t.start()
+            t.join(TIME_LIMIT_S)
+            if t.is_alive():
                 ok = False
-                echo(f"  FAIL {name}: {type(e).__name__}: {e}")
-                echo("       " + traceback.format_exc().strip().replace("\n", "\n       "))
+                echo(f"  FAIL {name}: no answer after {TIME_LIMIT_S} s")
+            elif "error" in result:
+                ok = False
+                echo(f"  FAIL {name}: {result['error']}")
+                echo("       " + result["trace"].strip().replace("\n", "\n       "))
+            else:
+                echo(f"  ok   {name}: {result['detail']} ({time.time() - t0:.1f} s)")
     echo("all checks passed" if ok else "some checks failed — please report them with the output above")
     return ok

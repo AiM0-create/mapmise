@@ -35,6 +35,8 @@ GDAL_ENV = dict(
     GDAL_HTTP_MAX_RETRY="5",
     GDAL_HTTP_RETRY_DELAY="2",
     CPL_VSIL_CURL_CHUNK_SIZE="1048576",
+    GDAL_HTTP_CONNECTTIMEOUT="20",  # a stalled connection fails (and is retried) instead of waiting forever
+    GDAL_HTTP_TIMEOUT="60",
 )
 if sys.platform in ("win32", "darwin") and "CURL_CA_BUNDLE" not in os.environ:
     # GDAL's bundled curl on Windows/macOS does not see the system certificate store; use the same

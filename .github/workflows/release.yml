@@ -16,6 +16,7 @@ jobs:
   desktop:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -35,12 +36,20 @@ jobs:
         run: python -m pip install ".[dev]" pyinstaller pillow
       - name: Test (offline suite, on this operating system)
         run: python -m pytest -q
+      - name: Give bundled libraries unique names (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          python packaging/macos_unique_dylibs.py
+          python -c "import rasterio, pyproj, pyogrio, shapely; print('imports ok')"
+          mapmise selftest
+        timeout-minutes: 10
       - name: Build the app
         run: |
           pyinstaller --noconfirm --distpath build/dist --workpath build/work packaging/mapmise.spec
           echo "VERSION=$(python -c 'import mapmise; print(mapmise.__version__)')" >> "$GITHUB_ENV"
           mkdir -p build/installers
       - name: Self-test the built app (real download over HTTPS)
+        timeout-minutes: 10
         run: |
           case "${{ runner.os }}" in
             Windows) CLI=build/dist/Mapmise/mapmise-cli.exe ;;
