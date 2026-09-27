@@ -399,13 +399,18 @@ def run(argv: list[str] | None = None) -> None:
     """Entry point of the `mapmise` command and the desktop launchers."""
     code = main(argv)
     if sys.platform == "win32":
-        # On Windows, GDAL's network layer can hang while Python shuts down after a download, keeping the
-        # process alive forever. Every file is written and closed by now, so leave without that shutdown.
-        import os
+        # On Windows a library's unload routine can deadlock once a download has happened, so the process
+        # never ends — even os._exit runs those routines. Every file is written and closed by now: flush the
+        # output and end the process directly, which skips them.
+        import ctypes
+        from ctypes import wintypes
         for stream in (sys.stdout, sys.stderr):
             if stream is not None:
                 stream.flush()
-        os._exit(code or 0)
+        kernel32 = ctypes.windll.kernel32
+        kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+        kernel32.TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
+        kernel32.TerminateProcess(kernel32.GetCurrentProcess(), code or 0)
     sys.exit(code)
 
 
