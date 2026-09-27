@@ -21,7 +21,7 @@ from geofetch.registry import Need, Source, load_sources
 from geofetch.report import write_report
 from geofetch.resolver import Resolution, parse_ask, resolve_needs
 from geofetch.run import execute, gaps
-from geofetch.understand import Period, geocode, parse_period, place_candidates
+from geofetch.understand import Period, geocode_first, parse_period, place_candidates
 
 
 class AskError(Exception):
@@ -46,6 +46,7 @@ class Options:
     use: list[str] = field(default_factory=list)
     threads: int = 12
     workspace: str | None = None
+    no_ai: bool = False
 
 
 def _gb(n: int) -> str:
@@ -239,15 +240,10 @@ def _open_or_create_project(a, text: str, period: Period | None) -> tuple[Projec
     queries = [a.place] if a.place else place_candidates(text, period, _vocabulary())
     if not queries:
         raise AskError("no place found in the ask; say where (\"… in Chitradurga …\"), or pass --place NAME or --aoi FILE")
-    last_err = None
-    for q in queries:
-        try:
-            place = geocode(q, a.pick)
-            break
-        except LookupError as e:
-            last_err = e
-    else:
-        raise AskError(str(last_err))
+    try:
+        place, q = geocode_first(queries, a.pick)
+    except LookupError as e:
+        raise AskError(str(e))
     root = Path(a.project or _workspace(a) / f"{_slug(place.name)}-{start:%Y-%m}")
     if (root / "project.json").exists():  # same place and month as an earlier ask: keep adding to that project
         return Project.load(root), f"“{q}” → {place.display_name} — existing project reused"
@@ -342,7 +338,7 @@ def prepare(text: str, a, log: Callable[[str], None] = print) -> dict:
     start, end = _request_period(a, period, p)
     existing = "existing project" in where
     period_source = ("flags" if (a.start or a.end) else f"“{period.text}”" if period else "project period" if existing else "default: last 12 months")
-    ask = parse_ask(text)
+    ask = parse_ask(text, use_ai=not getattr(a, "no_ai", False))
     if not ask.needs:
         raise AskError(f"No ask rule matched “{text}”. Try words like flood, drought, NDVI, urban, reservoir, slope, road, rainfall, "
                        "forest, fire, heat or soil — or add a rule to geofetch/registry/asks.yaml.")
@@ -371,7 +367,8 @@ def prepare(text: str, a, log: Callable[[str], None] = print) -> dict:
     return {
         "request_id": req_id, "project": str(p.root.resolve()), "place": where, "area_km2": p.meta.aoi_area_km2,
         "country": p.meta.country_iso3, "epsg": p.meta.project_epsg, "start": start.isoformat(), "end": end.isoformat(),
-        "period_source": period_source, "rules": ask.matched_rules, "n_needs": len(needs), "event_note": event_note,
+        "period_source": period_source, "rules": ask.matched_rules, "how": ask.how, "ai": ask.ai,
+        "n_needs": len(needs), "event_note": event_note,
         "plans": plans, "unmet": unmet_d, "attention": attention(plans), "why": why_lines(plans),
         "alternatives": {r.need.key: [c.source.id for c in r.candidates] for r in resolutions},
         "total_bytes": sum(pl["estimate"]["to_fetch_bytes"] for pl in plans),

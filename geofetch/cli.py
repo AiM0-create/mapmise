@@ -88,7 +88,8 @@ def cmd_ask(a: argparse.Namespace) -> int:
         raise SystemExit(str(e))
     print(f"understood:\n  place   {r['place']}\n          {r['area_km2']:,.0f} km², {r['country'] or 'country unknown'}, project CRS EPSG:{r['epsg']}"
           f"\n  period  {r['start']} → {r['end']}  ({r['period_source']})\n  project {r['project']}"
-          f"\n  asks    {', '.join(r['rules'])} → {r['n_needs']} data needs")
+          f"\n  asks    {r['n_needs']} data needs from:" + "".join(f"\n          {rid}  ({r['how'][rid]})" for rid in r["rules"])
+          + ("" if r["ai"] == "on" else f"\n          (built-in AI {r['ai']})"))
     if r["event_note"]:
         print(f"  before/after  {r['event_note']}")
     print_request(r["plans"], r["unmet"])
@@ -232,6 +233,7 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--use", action="append", metavar="THEME:TEMPORAL=SOURCE", help="force a source for a need")
     s.add_argument("--dry-run", action="store_true", help="plan only"); s.add_argument("--yes", "-y", action="store_true")
     s.add_argument("--threads", type=int, default=12)
+    s.add_argument("--no-ai", action="store_true", help="keyword rules only; do not use the built-in model")
     s.set_defaults(fn=cmd_ask)
 
     s = sub.add_parser("run", help="execute a request's plans (default: latest)")

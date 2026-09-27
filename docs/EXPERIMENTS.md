@@ -90,3 +90,22 @@ Rebuilt as a registry-driven engine (see README): 13 sources / 4 drivers / 9 ask
 | road accessibility after landslides | access, terrain | transport→OSM roads, elevation→DEM, population→WorldPop |
 
 Flood ask, Chitradurga, `--event 2026-08-15`: 7 sources, 50 files, ≈3.5 GB estimated; verdicts: radar pre/post feasible on one orbit (63 descending, Aug 3 / Aug 15, 95 % coverage); optical pre-window infeasible (61 % expected clear from all 38 scenes), post needs a 9-scene composite; buildings query refused (AOI 8,448 km² > 2,000 km² cap). Execution results appended below when complete.
+
+## E5 — Built-in AI for understanding asks (2026-09-27)
+
+Question: can a small model shipped inside geofetch (no API, offline) understand asks that the keyword rules miss, without inventing anything?
+
+Model: sentence-transformers/all-MiniLM-L6-v2, 8-bit ONNX, 23 MB (Apache-2.0), run with onnxruntime on the CPU: 0.2 s to load, ~1 ms per sentence. It embeds the ask and compares it with example phrasings attached to each ask rule; it can only select existing rules. A set of everyday non-GIS sentences acts as "none of the above".
+
+Evaluation set: `tests/fixtures/asks_eval.yaml`, 34 questions written separately from the rule examples (Indian place names and phrasings, 4 off-topic), split into tune (thresholds chosen) and test (reported only). Script: `experiments/e5_ai_understanding.py`.
+
+| half | keyword rules only | keyword rules + AI |
+|---|---|---|
+| tune (17) | 8 | 15 |
+| **test (17, held out)** | **11** | **16** |
+
+Thresholds chosen on the tune half: minimum similarity 0.325, margin 0.06, add-to-keywords 0.50. The remaining test miss is an off-topic question ("best restaurants in Bengaluru") matched to heat at a low 0.33; it is not tuned away after the fact, and the approval step shows the plan before anything downloads.
+
+The evaluation also found two keyword bugs, fixed: `rain` matched inside "t**rain**" (now word-bounded), and bare "settlement" sent connectivity questions to the urban rule.
+
+Found while testing the full ask: place names that exist only as points in OpenStreetMap (towns) now resolve to the enclosing administrative area (Hiriyur → Hiriyuru taluk, stated in the plan), and place candidates after a preposition ("near Hiriyur") are tried before a capitalised first word ("Farmers …"), which previously geocoded to a hamlet in Ohio.

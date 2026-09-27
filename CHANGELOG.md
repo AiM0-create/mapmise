@@ -2,6 +2,10 @@
 
 ## 0.1.0a1 — first public alpha
 
+- Built-in AI: a 23 MB sentence-embedding model (all-MiniLM-L6-v2, Apache-2.0) shipped in the package, offline,
+  matches questions by meaning to ask rules (each rule now has example phrasings). Held-out evaluation:
+  11/17 → 16/17 understood. Reasons shown in the plan; `--no-ai` to disable.
+- Places that exist only as points (towns) resolve to the enclosing administrative area, stated in the plan.
 - `geofetch gui`: a local app in the browser — ask, plan (untick, swap sources, details per row),
   fetching with progress, project view with Open in QGIS and the report. Standard library server bound
   to 127.0.0.1 with a per-session token; Leaflet (BSD-2) bundled for the map.

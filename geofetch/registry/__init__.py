@@ -107,6 +107,7 @@ class AskRule:
     keywords: tuple[str, ...]
     needs: tuple[Need, ...]
     event_type: str | None = None
+    examples: tuple[str, ...] = ()
 
 
 def _load_yaml(name: str) -> list[dict]:
@@ -148,5 +149,5 @@ def load_ask_rules() -> list[AskRule]:
             needs.append(Need(n["theme"], n["temporal"], n["priority"], n["why"], n.get("prefer", {}), r["id"]))
         for k in r["keywords"]:
             re.compile(k)
-        rules.append(AskRule(r["id"], tuple(r["keywords"]), tuple(needs), r.get("event_type")))
+        rules.append(AskRule(r["id"], tuple(r["keywords"]), tuple(needs), r.get("event_type"), tuple(r.get("examples", []))))
     return rules

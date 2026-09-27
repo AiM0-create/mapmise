@@ -217,6 +217,8 @@ Hard rule enforced by types: `StructuredIntent` contains **no** scene IDs, URLs,
 
 Local models: Ollama-class models can fill `StructuredIntent` via constrained JSON output; not an MVP requirement.
 
+**Decision 2026-09-27 (owner):** the AI must be shipped inside the software — no API, no account, offline. Implemented as a 23 MB sentence-embedding model that maps asks to existing rules by meaning (E5). A small generative model remains a later option for multi-part questions, under the same rule: its output is a structured request the deterministic engine validates.
+
 ## 12. Discovery strategy
 
 - **Primary: STAC via pystac-client** for Earth Search (S2 L2A COG, anonymous), Planetary Computer (S2 L2A, S1 GRD, S1 RTC; free with signing), CDSE STAC (S2, S1 COG; auth for assets). Probed today; all responsive.

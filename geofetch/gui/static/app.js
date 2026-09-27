@@ -95,7 +95,9 @@ function renderPlan() {
   $("understood").innerHTML = `
     <p class="small" style="margin:0 0 8px"><strong>${esc(r.place.split("\n")[0])}</strong><br><span class="muted">${Math.round(r.area_km2).toLocaleString()} km² · ${esc(r.country || "")} · EPSG:${r.epsg}</span></p>
     <p class="small" style="margin:0 0 8px">${esc(r.start)} → ${esc(r.end)} <span class="muted">(${esc(r.period_source)})</span></p>
-    <p class="small" style="margin:0">${esc(r.rules.join(", "))} → ${r.n_needs} data needs</p>
+    <p class="small" style="margin:0 0 4px">${r.n_needs} data needs, because:</p>
+    ${r.rules.map((id) => `<p class="small" style="margin:0 0 2px">· <strong>${esc(id)}</strong> <span class="muted">${esc(r.how[id] === "keyword" ? "word in your question" : r.how[id].replace(/^meaning: /, "built-in AI: "))}</span></p>`).join("")}
+    ${r.ai !== "on" ? `<p class="small muted" style="margin:4px 0 0">Built-in AI ${esc(r.ai)} — keyword rules only.</p>` : ""}
     ${r.event_note ? `<p class="small" style="margin:8px 0 0;color:var(--warn)">${esc(r.event_note)}</p>` : ""}
     ${r.notes.length ? `<p class="small muted" style="margin:8px 0 0">${r.notes.map(esc).join("<br>")}</p>` : ""}
     <p class="muted small" style="margin:8px 0 0">Project: ${esc(r.project)}</p>`;

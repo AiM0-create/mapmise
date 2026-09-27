@@ -1,0 +1,39 @@
+# Evaluation set for ask understanding. Written separately from the rule examples; never used as examples.
+# primary: the rule the ask is about (null = off-topic, nothing should match)
+# allowed: other rules that are reasonable to add as well (not counted as errors)
+# split: tune (used to choose thresholds) or test (reported only)
+
+- {text: "the tank near our village dried up completely this summer", primary: water_bodies, allowed: [drought, rainfall], split: tune}
+- {text: "rains were very poor and the groundnut crop withered in Chitradurga", primary: drought, allowed: [rainfall, vegetation], split: tune}
+- {text: "Hiriyur fields got no rain in July, farmers are worried", primary: drought, allowed: [rainfall, vegetation], split: test}
+- {text: "the Tungabhadra overflowed and entered houses in Hampi", primary: flood, allowed: [water_bodies], split: tune}
+- {text: "after the cloudburst the low lying areas were submerged", primary: flood, allowed: [water_bodies, rainfall], split: test}
+- {text: "Bengaluru has eaten up its lakes and farmland over twenty years", primary: urban, allowed: [water_bodies, vegetation], split: tune}
+- {text: "how much new housing came up around Mysuru", primary: urban, allowed: [], split: test}
+- {text: "which wards of Chennai are hottest in May", primary: heat, allowed: [urban], split: tune}
+- {text: "surface temperature of Delhi during the heatwave", primary: heat, allowed: [urban], split: test}
+- {text: "how much jungle was lost in the Western Ghats", primary: forest, allowed: [vegetation], split: tune}
+- {text: "tree cutting in the Aravalli hills since 2010", primary: forest, allowed: [vegetation], split: test}
+- {text: "stubble burning in Punjab fields in October", primary: fire, allowed: [vegetation], split: tune}
+- {text: "which areas burned in the Uttarakhand fires", primary: fire, allowed: [forest], split: test}
+- {text: "how far do pregnant women travel for delivery care in Raichur", primary: services, allowed: [access, boundaries], split: tune}
+- {text: "villages without a school within five kilometres", primary: services, allowed: [access, boundaries], split: test}
+- {text: "is the soil in Kolar good for mango orchards", primary: soil, allowed: [terrain], split: tune}
+- {text: "organic carbon of farmland in Mandya", primary: soil, allowed: [], split: test}
+- {text: "how steep are the hills around Coorg for a road project", primary: terrain, allowed: [access], split: tune}
+- {text: "delineate the watershed of the Arkavathi river", primary: terrain, allowed: [water_bodies], split: test}
+- {text: "which hamlets are cut off during the monsoon", primary: access, allowed: [flood, rainfall], split: tune}
+- {text: "how connected are tribal settlements to the highway", primary: access, allowed: [], split: test}
+- {text: "monthly rain totals for Kodagu last season", primary: rainfall, allowed: [], split: tune}
+- {text: "was this monsoon wetter than usual in Udupi", primary: rainfall, allowed: [drought], split: test}
+- {text: "how green were the paddy fields through the kharif season", primary: vegetation, allowed: [], split: tune}
+- {text: "crop growth stages of sugarcane in Belagavi", primary: vegetation, allowed: [], split: test}
+- {text: "how much water is left in the Krishna Raja Sagar dam", primary: water_bodies, allowed: [], split: test}
+- {text: "wetlands around Chilika shrinking", primary: water_bodies, allowed: [], split: tune}
+- {text: "block-wise summary of crop area in Tumakuru", primary: boundaries, allowed: [vegetation], split: tune}
+- {text: "statistics for each taluk of Hassan", primary: boundaries, allowed: [], split: test}
+- {text: "people affected by the landslides in Wayanad", primary: terrain, allowed: [flood, access], split: test}
+- {text: "book a train ticket to Mumbai", primary: null, allowed: [], split: tune}
+- {text: "what is the capital of France", primary: null, allowed: [], split: test}
+- {text: "write me a poem about the sea", primary: null, allowed: [], split: tune}
+- {text: "best restaurants in Bengaluru", primary: null, allowed: [], split: test}

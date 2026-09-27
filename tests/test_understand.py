@@ -39,3 +39,12 @@ def test_no_period():
 ])
 def test_place_candidates(text, expected):
     assert place_candidates(text, parse_period(text, TODAY)) == expected
+
+
+@pytest.mark.parametrize("text,first", [
+    ("Farmers near Hiriyur lost their groundnut because it barely rained in July 2026", "Hiriyur"),
+    ("Chitradurga flood in August", "Chitradurga"),
+    ("Villagers in Wayanad say the landslides blocked roads", "Wayanad"),
+])
+def test_place_after_a_preposition_is_tried_before_a_sentence_initial_word(text, first):
+    assert place_candidates(text, parse_period(text, TODAY))[0] == first

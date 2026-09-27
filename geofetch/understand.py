@@ -106,6 +106,7 @@ _LEAD = {
     "compare", "need", "want", "what", "how", "where", "when", "which", "the", "a", "an", "in", "of", "for", "over", "is", "are", "was", "did",
     "flood", "floods", "drought", "urban", "slope", "road", "roads", "ndvi", "dem", "sar", "reservoir", "forest", "fire", "heat",
 }
+_PREPOSITIONS = {"in", "near", "at", "around", "of", "over", "across", "for", "from", "within", "outside", "inside", "along", "to"}
 _ADMIN = r"(?:district|taluk|tehsil|mandal|block|state|province|county|city|region|division|municipality|village|town|basin|watershed|catchment)"
 
 
@@ -115,17 +116,22 @@ def place_candidates(text: str, period: Period | None = None, extra_stop: set[st
     if period:
         t = re.sub(re.escape(period.text), " ", t, flags=re.IGNORECASE)
     pattern = rf"\b([A-Z][\w'’.-]*(?:\s+(?:[A-Z][\w'’.-]*|of|de|la|el|al|du|do|da))*(?:\s+{_ADMIN})?)"
-    out = []
-    for m in re.finditer(pattern, t):
+    found: list[tuple[int, int, str]] = []
+    for i, m in enumerate(re.finditer(pattern, t)):
         words = m[1].split()
         while words and words[0].lower().strip(".,") in stop:  # trim lead words / months
             words = words[1:]
         while words and words[-1].lower() in {"of", "de", "la", "el", "al", "du", "do", "da"}:
             words = words[:-1]
         cand = " ".join(words).strip(" .,")
-        if cand and cand.lower() not in stop and cand not in out:
-            out.append(cand)
-    return out
+        if not cand or cand.lower() in stop or any(cand == f[2] for f in found):
+            continue
+        before = t[:m.start()].rstrip()
+        prev = before.split()[-1].lower() if before.split() else ""
+        # rank: a name after a place preposition first; a capitalised first word of a sentence last
+        rank = 0 if prev in _PREPOSITIONS else (2 if not before or before.endswith((".", "!", "?")) else 1)
+        found.append((rank, i, cand))
+    return [c for _, _, c in sorted(found)]
 
 
 @dataclass
@@ -143,18 +149,69 @@ class Place:
         return area_km2(self.geometry)
 
 
-def geocode(query: str, pick: int = 0) -> Place:
-    """Nominatim search → the `pick`-th result that has a polygon. Raises LookupError if none."""
+def geocode_first(queries: list[str], pick: int = 0) -> tuple[Place, str]:
+    """Try each candidate for a real area first; only if none has one, use the area enclosing the first point place."""
+    import time
+    points: list[tuple[str, dict, list[str]]] = []
+    for i, q in enumerate(queries):
+        if i:
+            time.sleep(1.0)  # Nominatim usage policy
+        try:
+            return geocode(q, pick, allow_point=False), q
+        except _PointOnly as e:
+            points.append((q, e.point, e.names))
+        except LookupError:
+            continue
+    if points:
+        q, point, names = points[0]
+        return _enclosing_area(q, point, names), q
+    raise LookupError(f"none of {queries} is a place OpenStreetMap knows; pass --place with a fuller name, or --aoi FILE")
+
+
+class _PointOnly(LookupError):
+    def __init__(self, point: dict, names: list[str]):
+        super().__init__("point only")
+        self.point, self.names = point, names
+
+
+def geocode(query: str, pick: int = 0, allow_point: bool = True) -> Place:
+    """Nominatim search → the `pick`-th result that has a polygon. A point-only place (a town) resolves to the
+    administrative area containing it when allow_point, else raises _PointOnly. LookupError if nothing matches."""
     r = httpx.get("https://nominatim.openstreetmap.org/search",
                   params={"q": query, "format": "jsonv2", "polygon_geojson": 1, "polygon_threshold": 0.0005, "limit": 8},
                   headers=UA, timeout=60)
     r.raise_for_status()
-    polys = [x for x in r.json() if x.get("geojson", {}).get("type") in ("Polygon", "MultiPolygon")]
+    results = r.json()
+    polys = [x for x in results if x.get("geojson", {}).get("type") in ("Polygon", "MultiPolygon")]
+    if not polys and results:
+        if not allow_point:
+            raise _PointOnly(results[0], [x["display_name"] for x in results])
+        return _enclosing_area(query, results[0], [x["display_name"] for x in results])
     if not polys:
-        raise LookupError(f"OpenStreetMap has no area (polygon) named {query!r}; pass --place with a fuller name, or --aoi FILE")
+        raise LookupError(f"OpenStreetMap has nothing named {query!r}; pass --place with a fuller name, or --aoi FILE")
     if pick >= len(polys):
         raise LookupError(f"only {len(polys)} area(s) match {query!r}; --pick must be < {len(polys)}")
     x = polys[pick]
     alts = [f"[{i}] {p['display_name']} ({p.get('category')}/{p.get('type')})" for i, p in enumerate(polys)]
     return Place(query, x.get("name") or query, x["display_name"], f"{x.get('category')}/{x.get('type')}",
                  f"{x.get('osm_type')}/{x.get('osm_id')}", shape(x["geojson"]).buffer(0), alts)
+
+
+def _enclosing_area(query: str, point: dict, names: list[str]) -> Place:
+    """The place is only a point (a town or village): use the smallest administrative area that contains it
+    (taluk/county level first, then district), and say so."""
+    import time
+    for zoom in (10, 8):
+        time.sleep(1.0)  # Nominatim usage policy: at most one request per second
+        r = httpx.get("https://nominatim.openstreetmap.org/reverse",
+                      params={"lat": point["lat"], "lon": point["lon"], "zoom": zoom, "format": "jsonv2",
+                              "polygon_geojson": 1, "polygon_threshold": 0.0005}, headers=UA, timeout=60)
+        r.raise_for_status()
+        d = r.json()
+        if d.get("geojson", {}).get("type") in ("Polygon", "MultiPolygon"):
+            area_name = d.get("name") or d.get("display_name", "").split(",")[0]
+            return Place(query, area_name, f"{d.get('display_name')} — the area containing {point.get('name') or query} "
+                         f"({point.get('type', 'place')}, a point in OpenStreetMap)",
+                         f"{d.get('category')}/{d.get('type')}", f"{d.get('osm_type')}/{d.get('osm_id')}",
+                         shape(d["geojson"]).buffer(0), [f"[{i}] {n}" for i, n in enumerate(names)])
+    raise LookupError(f"{query!r} is only a point in OpenStreetMap and no enclosing area was found; pass --aoi FILE")

@@ -70,6 +70,11 @@ An ask rule maps words to generic data needs:
 - `temporal`: `static`, `series`, or `pair` (before/after an event).
 - `why` is shown to the user. Write it for someone who is not an expert.
 - Rules compose: an ask is the union of every rule it matches. Prefer small rules over one big one.
+- `examples:` are natural phrasings of the ask. The built-in AI matches questions that use none of the
+  keywords by meaning against them, so add the ways people really phrase this kind of question.
+- After changing rules or examples, run `python experiments/e5_ai_understanding.py`: it reports how many
+  questions in `tests/fixtures/asks_eval.yaml` are understood, with keywords only and with the AI. Don't copy
+  evaluation questions into `examples:` — that would make the score meaningless.
 - `geofetch rules` lists the current vocabulary.
 
 ## Development

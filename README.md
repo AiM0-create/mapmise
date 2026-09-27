@@ -79,6 +79,23 @@ opens geofetch in your browser. It runs entirely on your computer (nothing is ho
 
 New projects go to `~/geofetch-projects` (change with `--workspace`). Everything the app does is written to the same project files as the command line.
 
+## Built-in AI
+
+geofetch ships a small language model (23 MB, runs offline on your CPU, no account or API key). It lets you ask in your own words:
+
+> “Farmers near Hiriyur lost their groundnut because it barely rained in July 2026”
+
+has no word like *drought* in it, yet the plan says:
+
+```
+drought   (meaning: close to “farmers lost their harvest because it did not rain” (0.62))
+rainfall  (keyword)
+```
+
+The model only chooses among the ask rules that already exist, and always says why. It cannot invent a dataset, a scene, a date or a place; everything after understanding is the same deterministic engine. On a held-out set of realistic questions it raised understanding from 11/17 (keywords alone) to 16/17 — see `docs/EXPERIMENTS.md` (E5). Turn it off with `--no-ai`.
+
+Model: sentence-transformers/all-MiniLM-L6-v2 (Apache-2.0), 8-bit ONNX, run with onnxruntime.
+
 ## Use from the command line
 
 ```bash
