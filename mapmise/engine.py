@@ -28,6 +28,25 @@ class AskError(Exception):
     """A problem the user can fix (no place found, unknown rule, …). The message is shown as-is."""
 
 
+# Area limits. Planning scene-by-scene imagery means reading every scene's catalogue entry: a country the size of
+# Brazil has hundreds of thousands per year, which takes hours and would be terabytes to download.
+LARGE_AREA_KM2 = 50_000        # above this, planning needs explicit confirmation (allow_large)
+SCENE_AREA_LIMIT_KM2 = 100_000  # above this, scene-by-scene imagery (optical, radar) is not planned at all
+
+
+class LargeArea(AskError):
+    """The area is large enough that planning must be confirmed first."""
+
+    def __init__(self, name: str, area_km2: float):
+        self.name, self.area_km2 = name, area_km2
+        scenes = "" if area_km2 <= SCENE_AREA_LIMIT_KM2 else (
+            " At this size Mapmise plans only area-wide products (forest change, land cover, MODIS, rainfall, terrain) — "
+            "not scene-by-scene imagery such as Sentinel or Landsat.")
+        super().__init__(f"{name} covers {area_km2:,.0f} km². Planning an area this large takes a long time and the data can "
+                         f"run to many gigabytes.{scenes} Name a smaller place (a state, district or city), use a boundary "
+                         "file, or confirm to plan it anyway.")
+
+
 @dataclass
 class Options:
     project: str | None = None
@@ -47,6 +66,7 @@ class Options:
     threads: int = 12
     workspace: str | None = None
     no_ai: bool = False
+    allow_large: bool = False  # plan areas above LARGE_AREA_KM2
 
 
 def _gb(n: int) -> str:
@@ -95,8 +115,15 @@ def _build_plans(p: Project, resolutions: list[Resolution], start: date, end: da
         groups.setdefault((r.chosen.id, "pair" if r.need.temporal == "pair" else r.need.temporal), []).append(r.need)
     sources = load_sources()
     plans = []
-    for (sid, tclass), needs in groups.items():
+    log_ = getattr(a, "_log", None) or (lambda msg: None)
+    for i, ((sid, tclass), needs) in enumerate(groups.items(), 1):
         s = sources[sid]
+        log_(f"Checking {s.name} ({i} of {len(groups)})…")
+        if s.shape == "series" and s.driver == "stac" and s.planner in ("optical", "sar") and aoi.area_km2 > SCENE_AREA_LIMIT_KM2:
+            for n in needs:
+                unmet.append((n, f"{s.name}: the area ({aoi.area_km2:,.0f} km²) is too large for scene-by-scene imagery "
+                                 f"(limit {SCENE_AREA_LIMIT_KM2:,} km²); name a smaller place or use an area-wide product"))
+            continue
         try:
             if s.shape == "series" and s.driver == "stac":
                 plan = scene_plan(aoi, s, needs, _assets_for(s, needs), start, end, p.cache_dir, sizes, event, pre_days, post_days,
@@ -227,8 +254,9 @@ def _slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", t).strip("-") or "project"
 
 
-def _open_or_create_project(a, text: str, period: Period | None) -> tuple[Project, str]:
-    """Existing project if --project points at one; otherwise create one from --aoi, --place, or a place named in the ask."""
+def _open_or_create_project(a, text: str, period: Period | None, log: Callable[[str], None] = print) -> tuple[Project, str]:
+    """Existing project if --project points at one; otherwise create one from --aoi, --place, or a place named in the ask.
+    Large areas are refused before any folder is created unless a.allow_large."""
     if a.project and (Path(a.project) / "project.json").exists():
         if a.place or a.aoi:
             raise AskError(f"{a.project} already has an AOI; drop --place/--aoi or use a new --project")
@@ -237,6 +265,10 @@ def _open_or_create_project(a, text: str, period: Period | None) -> tuple[Projec
     start, end = _request_period(a, period, None)
     if a.aoi:
         name = Path(a.aoi).stem
+        from mapmise.aoi import load_aoi
+        area = load_aoi(a.aoi).area_km2
+        if area > LARGE_AREA_KM2 and not getattr(a, "allow_large", False):
+            raise LargeArea(name, area)
         root = Path(a.project or _workspace(a) / f"{_slug(name)}-{start:%Y-%m}")
         if (root / "project.json").exists():
             return Project.load(root), f"file {a.aoi} — existing project {root} reused"
@@ -244,10 +276,14 @@ def _open_or_create_project(a, text: str, period: Period | None) -> tuple[Projec
     queries = [a.place] if a.place else place_candidates(text, period, _vocabulary())
     if not queries:
         raise AskError("no place found in the ask; say where (\"… in Chitradurga …\"), or pass --place NAME or --aoi FILE")
+    log(f"Finding {queries[0]}…")
     try:
         place, q = geocode_first(queries, a.pick)
     except LookupError as e:
         raise AskError(str(e))
+    log(f"Found {place.name} ({place.area_km2:,.0f} km²)")
+    if place.area_km2 > LARGE_AREA_KM2 and not getattr(a, "allow_large", False):
+        raise LargeArea(place.name, place.area_km2)
     root = Path(a.project or _workspace(a) / f"{_slug(place.name)}-{start:%Y-%m}")
     if (root / "project.json").exists():  # same place and month as an earlier ask: keep adding to that project
         return Project.load(root), f"“{q}” → {place.display_name} — existing project reused"
@@ -337,7 +373,7 @@ def prepare(text: str, a, log: Callable[[str], None] = print) -> dict:
     """Understand the ask, open or create the project, resolve needs, build and save plans and the request.
     Nothing is downloaded. Raises AskError for problems the user can fix."""
     period = parse_period(text)
-    p, where = _open_or_create_project(a, text, period)
+    p, where = _open_or_create_project(a, text, period, log)
     _ensure_country(p, log)
     start, end = _request_period(a, period, p)
     existing = "existing project" in where
@@ -349,10 +385,12 @@ def prepare(text: str, a, log: Callable[[str], None] = print) -> dict:
     skip = set(a.skip or [])
     needs = [n for n in ask.needs if n.key not in skip]
     overrides = dict(kv.split("=", 1) for kv in (a.use or []))
-    resolutions = resolve_needs(needs, p.aoi().bbox, start.isoformat(), end.isoformat(), p.meta.country_iso3, overrides)
+    resolutions = resolve_needs(needs, p.aoi().bbox, start.isoformat(), end.isoformat(), p.meta.country_iso3, overrides,
+                                area_km2=p.meta.aoi_area_km2)
     event, pre_days, post_days, event_note = None, a.pre_days, a.post_days, None
     if any(n.temporal == "pair" for n in needs):
         event, pre_days, post_days, event_note = _event_for(a, ask, period, p, start, end, log)
+    a._log = log
     plans, unmet = _build_plans(p, resolutions, start, end, event, pre_days, post_days, a)
     from mapmise.library import Library
     from mapmise.run import library_hits

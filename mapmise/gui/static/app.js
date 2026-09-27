@@ -113,25 +113,47 @@ $("ask-text").addEventListener("keydown", (e) => { if (e.key === "Enter") { stat
 $("plan-btn").onclick = () => { state.use = {}; state.skip = []; plan(); };
 document.querySelectorAll("#examples .chip").forEach((c) => (c.onclick = () => { $("ask-text").value = c.textContent; $("ask-text").focus(); }));
 
-async function plan() {
+async function plan(allowLarge = false) {
   const text = $("ask-text").value.trim();
   if (!text) { setError("ask-error", "Describe what you want to analyse first."); $("ask-text").focus(); return; }
   setError("ask-error", ""); setError("plan-error", "");
   const btn = $("plan-btn"); btn.disabled = true; btn.textContent = "Planning…";
-  if (!state.replan) $("ask-busy").hidden = false;
+  const busy = $(state.replan ? "total-sub" : "ask-step");
+  if (!state.replan) { $("ask-busy").hidden = false; $("ask-step").textContent = "Starting…"; $("ask-elapsed").textContent = ""; }
+  const replan = state.replan;
   try {
     const body = { text, place: $("opt-place").value, event: $("opt-event").value, start: $("opt-start").value, end: $("opt-end").value,
       mode: $("opt-mode").value, project: state.prep?.project && state.replan ? state.prep.project : $("opt-project").value,
-      use: state.use, skip: state.skip };
+      use: state.use, skip: state.skip, allow_large: allowLarge };
     if (state.aoiUpload && !body.project) { body.aoi_geojson = state.aoiUpload.geojson; body.aoi_name = state.aoiUpload.name; }
-    state.prep = await api("/api/prepare", body);
+    const { job } = await api("/api/prepare", body);
+    state.planJob = job;
+    let s;
+    for (;;) {  // each step is shown as it happens; Cancel stops at the next step
+      s = await api(`/api/prepare-status?id=${job}`);
+      busy.textContent = s.step;
+      if (!replan) $("ask-elapsed").textContent = s.seconds >= 5 ? `${s.seconds} s` : "";
+      if (s.done) break;
+      await new Promise((r) => setTimeout(r, 600));
+    }
+    state.planJob = null;
+    if (s.kind === "large") {
+      $("ask-busy").hidden = true;
+      if (await ask(`${s.area.name} is a very large area`, s.problem, "Plan anyway")) { state.replan = replan; return await plan(true); }  // await: this call's cleanup must not run while the new plan is still going
+      setError("ask-error", `Name a smaller place than ${s.area.name} (${s.area.km2.toLocaleString()} km²), or use a boundary file.`);
+      return;
+    }
+    if (s.kind === "cancelled") { setError("ask-error", "Planning was cancelled."); return; }
+    if (s.problem) throw new Error(s.problem);
+    state.prep = s.result;
     state.prep.plans.forEach((p) => (state.names[p.source] = p.source_name));
     show("plan");
     renderPlan();
   } catch (e) {
-    setError(state.replan ? "plan-error" : "ask-error", e.message);
-  } finally { btn.disabled = false; btn.textContent = "Create plan"; state.replan = false; $("ask-busy").hidden = true; }
+    setError(replan ? "plan-error" : "ask-error", e.message);
+  } finally { btn.disabled = false; btn.textContent = "Create plan"; state.replan = false; $("ask-busy").hidden = true; state.planJob = null; }
 }
+$("plan-cancel").onclick = () => { if (state.planJob) { $("ask-step").textContent = "Cancelling…"; api("/api/prepare-cancel", { job: state.planJob }).catch(() => {}); } };
 
 // ------------------------------------------------------------ Plan
 

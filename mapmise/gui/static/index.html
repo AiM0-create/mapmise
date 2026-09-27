@@ -36,7 +36,7 @@
       <button id="plan-btn" class="primary">Create plan</button>
     </div>
     <p id="ask-error" class="inline-error" hidden></p>
-    <div id="ask-busy" class="busy" hidden><span class="spinner" aria-hidden="true"></span><span>Finding the place, searching the catalogues and checking cloud and coverage. A new area can take up to a minute.</span></div>
+    <div id="ask-busy" class="busy" hidden><span class="spinner" aria-hidden="true"></span><span id="ask-step">Starting…</span><span class="caption num" id="ask-elapsed"></span><button class="plain" id="plan-cancel" style="padding:4px 10px">Cancel</button></div>
     <div class="chips" id="examples">
       <button class="chip">Agricultural drought in Chitradurga during the 2026 monsoon</button>
       <button class="chip">Urban expansion of Bengaluru between 2005 and 2025</button>

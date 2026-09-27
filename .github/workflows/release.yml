@@ -71,6 +71,22 @@ jobs:
           cd "$RUNNER_TEMP"
           "$GITHUB_WORKSPACE/$CLI" gui --smoke-test --workspace "$RUNNER_TEMP/ws"
 
+      - name: Smoke-test a double-click start (start screen, then the app in the same window)
+        if: runner.os == 'Windows'
+        timeout-minutes: 5
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath "build\dist\Mapmise\Mapmise.exe" -ArgumentList "--smoke-test" -Wait -PassThru
+          Get-Content "$env:LOCALAPPDATA\mapmise\Data\mapmise.log" -ErrorAction SilentlyContinue | Select-Object -Last 20
+          if ($p.ExitCode -ne 0) { exit 1 }
+      - name: Smoke-test a double-click start (macOS)
+        if: runner.os == 'macOS'
+        timeout-minutes: 5
+        run: |
+          build/dist/Mapmise.app/Contents/MacOS/Mapmise --smoke-test; code=$?
+          tail -20 "$HOME/Library/Application Support/mapmise/mapmise.log" || true
+          exit $code
+
       - name: Package (Windows installer + portable zip)
         if: runner.os == 'Windows'
         shell: pwsh

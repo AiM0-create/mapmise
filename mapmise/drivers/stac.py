@@ -28,6 +28,7 @@ PROVIDERS: dict[str, str] = {
     "nasa_lpcloud": "https://cmr.earthdata.nasa.gov/stac/LPCLOUD",   # NASA LP DAAC (searching is public)
     "nasa_pocloud": "https://cmr.earthdata.nasa.gov/stac/POCLOUD",   # NASA PO.DAAC
 }
+MAX_ITEMS = 10_000  # one search never reads more than this many catalogue entries
 _FIELDS = ["id", "geometry", "bbox", "properties.datetime", "properties.start_datetime", "properties.end_datetime",
            "properties.eo:cloud_cover", "properties.grid:code", "properties.sat:relative_orbit", "properties.sat:orbit_state",
            "properties.proj:epsg", "properties.proj:code", "properties.proj:bbox", "properties.proj:shape", "properties.proj:transform"]
@@ -152,7 +153,11 @@ def _fetch(q: Query, source: Source, page_size: int = 100) -> list[dict]:
         kw["datetime"] = f"{q.start}T00:00:00Z/{q.end}T23:59:59Z"
     if q.extra:
         kw["query"] = q.extra
-    return list(client.search(**kw).items_as_dicts())
+    items = list(client.search(max_items=MAX_ITEMS, **kw).items_as_dicts())
+    if len(items) >= MAX_ITEMS:  # never plan from a truncated catalogue, and never page for hours
+        raise RuntimeError(f"the catalogue returned more than {MAX_ITEMS:,} scenes for this area and period; "
+                           "name a smaller area or a shorter period")
+    return items
 
 
 def search(source: Source, q: Query, cache_dir: Path | None = None, refresh: bool = False) -> tuple[list[Item], dict]:

@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.0a4
+
+From the first real-world test on Windows:
+
+- The app window opens immediately with a start screen while the data engine loads behind it; the first start on
+  Windows can take up to a minute while the system checks the new app, and the screen now says so.
+- Only one copy runs: a second start — even while the first is still loading — brings the existing window forward.
+- Planning shows each step as it happens (finding the place, checking each dataset) with elapsed time and Cancel.
+- Large areas: above 50,000 km² planning must be confirmed; above 100,000 km² scene-by-scene imagery is not planned
+  and area-wide products are chosen instead (for example MODIS vegetation for a whole country). Catalogue searches
+  are capped, so no plan can page through a catalogue for hours. Previously "forest loss in Brazil" planned for hours
+  without any sign of progress; it now answers in seconds.
+
 ## 0.1.0a3
 
 - NASA Earthdata support: the user's own access token (never a password), stored privately on their computer and

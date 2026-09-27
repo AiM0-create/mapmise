@@ -122,8 +122,15 @@ def _job_view(job: dict) -> dict:
 
 # ---------------------------------------------------------------- actions
 
-def _prepare(body: dict) -> dict:
-    opts = engine.Options(workspace=str(WORKSPACE))
+_PROGRESS = ("Finding ", "Found ", "Checking ")  # step messages shown live, not kept as plan notes
+
+
+class _Cancelled(Exception):
+    pass
+
+
+def _prepare(body: dict, progress=None) -> dict:
+    opts = engine.Options(workspace=str(WORKSPACE), allow_large=bool(body.get("allow_large")))
     for k in ("project", "place", "start", "end", "event"):
         if body.get(k):
             setattr(opts, k, body[k])
@@ -138,7 +145,13 @@ def _prepare(body: dict) -> dict:
         opts.aoi = str(f)
     WORKSPACE.mkdir(parents=True, exist_ok=True)
     notes: list[str] = []
-    r = engine.prepare(body["text"], opts, log=notes.append)
+
+    def log(msg: str) -> None:
+        if progress:
+            progress(msg)
+        if not msg.startswith(_PROGRESS):
+            notes.append(msg)
+    r = engine.prepare(body["text"], opts, log=log)
     project = Project.load(Path(r["project"]))
     return {**{k: v for k, v in r.items() if k != "plans"}, "notes": notes, "aoi": _aoi_geojson(project),
             "plans": [_plan_row(pl, r["alternatives"]) for pl in r["plans"]], "library_here": _library_here(project)}
@@ -147,6 +160,51 @@ def _prepare(body: dict) -> dict:
 def _redact(text: str) -> str:
     from mapmise.drivers.signing import redact
     return redact(text)
+
+
+_plans_in_progress: dict[str, dict] = {}
+
+
+def _start_prepare(body: dict) -> dict:
+    """Plan in the background so the page can show each step and offer Cancel; poll /api/prepare-status."""
+    job = {"id": uuid.uuid4().hex[:12], "messages": [], "done": False, "cancel": False, "started": __import__("time").time()}
+    with _jobs_lock:
+        _plans_in_progress[job["id"]] = job
+
+    def progress(msg: str) -> None:
+        if job["cancel"]:
+            raise _Cancelled()
+        job["messages"].append(_redact(msg))
+
+    def work():
+        try:
+            job["result"] = _prepare(body, progress)
+        except _Cancelled:
+            job["error"], job["kind"] = "Planning was cancelled.", "cancelled"
+        except engine.LargeArea as e:
+            job["error"], job["kind"], job["area"] = str(e), "large", {"name": e.name, "km2": round(e.area_km2)}
+        except engine.AskError as e:
+            job["error"], job["kind"] = str(e), "ask"
+        except Exception as e:  # noqa: BLE001 — surfaced to the page
+            traceback.print_exc()
+            job["error"], job["kind"] = _redact(f"{type(e).__name__}: {e}"), "error"
+        finally:
+            job["done"] = True
+    threading.Thread(target=work, daemon=True).start()
+    return {"job": job["id"]}
+
+
+def _prepare_status(job_id: str) -> dict:
+    import time as _t
+    job = _plans_in_progress[job_id]
+    out = {"done": job["done"], "step": job["messages"][-1] if job["messages"] else "Starting…",
+           "seconds": round(_t.time() - job["started"])}
+    for k in ("result", "kind", "area"):
+        if k in job:
+            out[k] = job[k]
+    if "error" in job:  # "problem", not "error": the page treats an "error" field as a failed request
+        out["problem"] = job["error"]
+    return out
 
 
 def _start_job(body: dict) -> dict:
@@ -227,6 +285,8 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/api/status":
                 p = Project.load(Path(q["project"]))
                 return self._json({**engine.status(p), "aoi": _aoi_geojson(p)})
+            if u.path == "/api/prepare-status":
+                return self._json(_prepare_status(q["id"]))
             if u.path == "/api/job":
                 return self._json(_job_view(_jobs[q["id"]]))
             if u.path == "/api/library":
@@ -267,7 +327,12 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/api/prepare":
                 if not (body.get("text") or "").strip():
                     return self._json({"error": "Describe what you want to analyse first."}, 400)
-                return self._json(_prepare(body))
+                return self._json(_start_prepare(body))
+            if u.path == "/api/prepare-cancel":
+                job = _plans_in_progress.get(body.get("job", ""))
+                if job:
+                    job["cancel"] = True
+                return self._json({"ok": bool(job)})
             if u.path == "/api/run":
                 return self._json(_start_job(body))
             if u.path == "/api/open-qgis":
@@ -428,3 +493,39 @@ def _smoke_check(window) -> None:
         _SMOKE["code"] = 1
     finally:
         window.destroy()
+
+
+_BACKGROUND: dict = {}
+
+
+def start_in_background(workspace: str | None = None) -> str:
+    """Start the local server in a background thread for the desktop app's own window; returns its URL."""
+    global WORKSPACE, NATIVE
+    if workspace:
+        WORKSPACE = Path(workspace).expanduser().resolve()
+    NATIVE = True
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    url = f"http://127.0.0.1:{httpd.server_address[1]}/"
+    rec = _running_file()
+    try:
+        rec.parent.mkdir(parents=True, exist_ok=True)
+        rec.write_text(json.dumps({"url": url, "token": TOKEN, "mode": "window"}), encoding="utf-8")
+    except OSError:
+        rec = None
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    _BACKGROUND.update(httpd=httpd, rec=rec)
+    print(f"mapmise running in its own window ({url})", flush=True)
+    return url
+
+
+def stop_background() -> None:
+    httpd, rec = _BACKGROUND.pop("httpd", None), _BACKGROUND.pop("rec", None)
+    if httpd:
+        httpd.shutdown()
+        httpd.server_close()
+    if rec:
+        rec.unlink(missing_ok=True)
+
+
+def running_jobs() -> int:
+    return _running_jobs()

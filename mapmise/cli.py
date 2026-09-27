@@ -379,6 +379,7 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--dry-run", action="store_true", help="plan only"); s.add_argument("--yes", "-y", action="store_true")
     s.add_argument("--threads", type=int, default=12)
     s.add_argument("--no-ai", action="store_true", help="keyword rules only; do not use the built-in model")
+    s.add_argument("--allow-large-area", dest="allow_large", action="store_true", help="plan areas larger than 50,000 km² (slow; imagery is skipped above 100,000 km²)")
     s.set_defaults(fn=cmd_ask)
 
     s = sub.add_parser("run", help="execute a request's plans (default: latest)")
@@ -440,19 +441,9 @@ def main(argv: list[str] | None = None) -> int:
 def run(argv: list[str] | None = None) -> None:
     """Entry point of the `mapmise` command and the desktop launchers."""
     code = main(argv)
-    if sys.platform == "win32":
-        # On Windows a library's unload routine can deadlock once a download has happened, so the process
-        # never ends — even os._exit runs those routines. Every file is written and closed by now: flush the
-        # output and end the process directly, which skips them.
-        import ctypes
-        from ctypes import wintypes
-        for stream in (sys.stdout, sys.stderr):
-            if stream is not None:
-                stream.flush()
-        kernel32 = ctypes.windll.kernel32
-        kernel32.GetCurrentProcess.restype = wintypes.HANDLE
-        kernel32.TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
-        kernel32.TerminateProcess(kernel32.GetCurrentProcess(), code or 0)
+    if sys.platform == "win32":  # see proc.hard_exit: a library's unload routine can hang the process
+        from mapmise.proc import hard_exit
+        hard_exit(code or 0)
     sys.exit(code)
 
 

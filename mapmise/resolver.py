@@ -76,7 +76,7 @@ def _compatible_shape(need: Need, s: Source) -> bool:
 
 
 def resolve_needs(needs: list[Need], bbox: list[float], start: str, end: str, iso3: str | None = None,
-                  overrides: dict[str, str] | None = None) -> list[Resolution]:
+                  overrides: dict[str, str] | None = None, area_km2: float | None = None) -> list[Resolution]:
     """Rank registry sources per need. `overrides` maps need.key (e.g. 'water:static') to a source id."""
     from mapmise.auth import token
     sources = load_sources()
@@ -118,12 +118,18 @@ def resolve_needs(needs: list[Need], bbox: list[float], start: str, end: str, is
             )
 
         cands.sort(key=rank)
-        usable = [c for c in cands if logged_in or not c.source.needs_login]
+        from mapmise.engine import SCENE_AREA_LIMIT_KM2
+        too_big = area_km2 is not None and area_km2 > SCENE_AREA_LIMIT_KM2
+        usable = [c for c in cands if (logged_in or not c.source.needs_login)
+                  and not (too_big and c.source.shape == "series" and c.source.planner in ("optical", "sar"))]
         chosen = usable[0].source if usable else None
         if overrides and need.key in overrides:
             chosen = sources.get(overrides[need.key], chosen)
         if chosen:
             unmet = None
+        elif cands and too_big and all(c.source.shape == "series" and c.source.planner in ("optical", "sar") for c in cands):
+            unmet = (f"only scene-by-scene imagery ({cands[0].source.name}) provides this, and the area is too large for it "
+                     f"(limit {SCENE_AREA_LIMIT_KM2:,} km²); name a smaller place")
         elif cands:
             unmet = (f"available from {cands[0].source.name} with a free NASA Earthdata token — add one in Settings "
                      "or with: mapmise earthdata login")

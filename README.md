@@ -105,7 +105,7 @@ To verify an installation:
 For command-line use and scripting, with Python 3.12 or later:
 
 ```bash
-pip install mapmise-0.1.0a3-py3-none-any.whl pywebview   # from the release page; pywebview adds the app window
+pip install mapmise-0.1.0a4-py3-none-any.whl pywebview   # from the release page; pywebview adds the app window
 mapmise selftest
 ```
 
@@ -340,11 +340,15 @@ Options for `ask`:
 | `--project DIR` | Project location; an existing project accumulates further questions |
 | `--dry-run`, `--yes` | Plan without acquiring; or approve without prompting |
 | `--no-ai` | Use keyword rules only |
+| `--allow-large-area` | Plan an area larger than 50,000 km² |
 
 ## Limitations
 
 This is an alpha release. Known limitations:
 
+- Areas larger than 50,000 km² — roughly a large state — must be confirmed before planning. Above 100,000 km²,
+  Mapmise plans area-wide products only (forest change, land cover, MODIS, rainfall, terrain), not scene-by-scene
+  imagery such as Sentinel or Landsat, which at that scale would take hours to plan and terabytes to download.
 - Understanding is limited to English and to the analyses described by the ask rules; a question matching no rule
   is reported as such.
 - No soil-moisture source is included yet: NASA's SMAP products are distributed as HDF5 on the EASE grid rather than
