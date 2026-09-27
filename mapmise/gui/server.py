@@ -35,6 +35,7 @@ from mapmise.library import Library
 STATIC = Path(__file__).parent / "static"
 TOKEN = secrets.token_urlsafe(24)
 WORKSPACE = Path.home() / "mapmise-projects"
+NATIVE = False  # True while the app is shown in its own window rather than a browser tab
 _jobs: dict[str, dict] = {}
 _jobs_lock = threading.Lock()
 
@@ -197,7 +198,8 @@ class Handler(BaseHTTPRequestHandler):
         u = urlparse(self.path)
         q = {k: v[0] for k, v in parse_qs(u.query).items()}
         if u.path in ("/", "/index.html"):
-            html = (STATIC / "index.html").read_text(encoding="utf-8").replace("__TOKEN__", TOKEN).replace("__VERSION__", __version__)
+            html = ((STATIC / "index.html").read_text(encoding="utf-8").replace("__TOKEN__", TOKEN)
+                    .replace("__VERSION__", __version__).replace("__NATIVE__", "true" if NATIVE else "false"))
             return self._send(200, html.encode(), "text/html; charset=utf-8")
         if u.path.startswith("/static/"):
             f = (STATIC / u.path[len("/static/"):]).resolve()
@@ -209,6 +211,8 @@ class Handler(BaseHTTPRequestHandler):
         if not self._authorised():
             return self._json({"error": "forbidden"}, 403)
         try:
+            if u.path == "/api/sources":
+                return self._json({sid: src.name for sid, src in load_sources().items()})
             if u.path == "/api/projects":
                 return self._json({"workspace": str(WORKSPACE), "projects": _projects()})
             if u.path == "/api/status":
@@ -265,10 +269,20 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/api/open-folder":
                 _open_folder(Path(body["project"]))
                 return self._json({"ok": True})
+            if u.path == "/api/show":
+                from mapmise.gui import window as win
+                return self._json({"ok": win.bring_to_front()})
+            if u.path == "/api/save-recipe":
+                from mapmise import recipe
+                p = Project.load(Path(body["project"]))
+                return self._json({"path": str(recipe.write(p))})
             if u.path == "/api/quit":
                 running = [j for j in _jobs.values() if not j.get("done")]
                 if running and not body.get("force"):
                     return self._json({"ok": False, "running": len(running)})
+                if NATIVE:
+                    from mapmise.gui import window as win
+                    threading.Timer(0.2, win.close).start()
                 threading.Thread(target=self.server.shutdown, daemon=True).start()
                 return self._json({"ok": True})
         except engine.AskError as e:
@@ -284,38 +298,109 @@ def _running_file() -> Path:
     return user_dir("data") / "running.json"
 
 
-def already_running() -> str | None:
-    """URL of a mapmise app already running for this user, if one answers."""
+def _running_jobs() -> int:
+    with _jobs_lock:
+        return sum(1 for j in _jobs.values() if not j.get("done"))
+
+
+def already_running() -> dict | None:
+    """{"url", "token", "mode"} of a mapmise app already running for this user, if one answers."""
     import urllib.request
     try:
-        url = json.loads(_running_file().read_text(encoding="utf-8"))["url"]
-        with urllib.request.urlopen(url + "static/app.css", timeout=2) as r:
-            return url if r.status == 200 else None
+        rec = json.loads(_running_file().read_text(encoding="utf-8"))
+        with urllib.request.urlopen(rec["url"] + "static/app.css", timeout=2) as r:
+            return rec if r.status == 200 else None
     except Exception:  # noqa: BLE001 — no record, stale record, or not answering: not running
         return None
 
 
-def serve(port: int = 0, open_browser: bool = True, workspace: str | None = None) -> None:
-    global WORKSPACE
+def bring_forward(rec: dict) -> bool:
+    """Ask a running app to show its window again. False if it has no window (browser mode)."""
+    import urllib.request
+    try:
+        req = urllib.request.Request(rec["url"] + "api/show", data=b"{}", method="POST",
+                                     headers={"X-Mapmise-Token": rec["token"], "Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=3) as r:
+            return bool(json.loads(r.read()).get("ok"))
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def serve(port: int = 0, open_browser: bool = True, workspace: str | None = None, window: bool = False,
+          smoke: bool = False) -> int:
+    """Run the app. window=True shows it in its own window (falling back to the browser when the system has
+    no web view); otherwise it opens in the browser. Returns an exit code."""
+    global WORKSPACE, NATIVE
     if workspace:
         WORKSPACE = Path(workspace).expanduser().resolve()
     httpd = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     url = f"http://127.0.0.1:{httpd.server_address[1]}/"
     rec = _running_file()
+
+    def record(mode: str) -> None:
+        nonlocal rec
+        try:
+            rec.parent.mkdir(parents=True, exist_ok=True)
+            rec.write_text(json.dumps({"url": url, "token": TOKEN, "mode": mode}), encoding="utf-8")
+        except OSError:
+            rec = None
+
+    code = 0
     try:
-        rec.parent.mkdir(parents=True, exist_ok=True)
-        rec.write_text(json.dumps({"url": url}), encoding="utf-8")
-    except OSError:
-        rec = None
-    print(f"mapmise GUI running at {url}\nprojects folder: {WORKSPACE}\npress Ctrl+C or the Quit button to stop", flush=True)
-    if open_browser:
-        threading.Timer(0.5, lambda: webbrowser.open(url)).start()
-    try:
-        httpd.serve_forever()
-    except KeyboardInterrupt:
-        pass
+        if window:
+            from mapmise.gui import window as win
+            if win.available():
+                NATIVE = True
+                record("window")
+                threading.Thread(target=httpd.serve_forever, daemon=True).start()
+                print(f"mapmise running in its own window ({url})", flush=True)
+                try:
+                    win.open_window(url, _running_jobs, on_closed=lambda: None, smoke=_smoke_check if smoke else None)
+                    return _SMOKE.get("code", 0) if smoke else 0
+                except win.WindowUnavailable as e:
+                    NATIVE = False
+                    print(f"no app window on this system ({e}); opening in the browser instead", flush=True)
+                    if smoke:
+                        return 3
+                    httpd.shutdown()
+                    httpd = ThreadingHTTPServer(("127.0.0.1", httpd.server_address[1]), Handler)
+            elif smoke:
+                print("smoke test: pywebview is not installed", flush=True)
+                return 3
+        record("browser")
+        print(f"mapmise GUI running at {url}\nprojects folder: {WORKSPACE}\npress Ctrl+C or the Quit button to stop", flush=True)
+        if open_browser:
+            threading.Timer(0.5, lambda: webbrowser.open(url)).start()
+        try:
+            httpd.serve_forever()
+        except KeyboardInterrupt:
+            pass
     finally:
         httpd.server_close()
         if rec:
             rec.unlink(missing_ok=True)
         print("stopped", flush=True)
+    return code
+
+
+_SMOKE: dict = {}
+
+
+def _smoke_check(window) -> None:
+    """Release check: the page loads in the real window, the app script runs and the API answers."""
+    import time
+    try:
+        window.events.loaded.wait(60)
+        for _ in range(60):
+            ok = window.evaluate_js("!!(window.MAPMISE_READY && document.querySelector('.segmented'))")
+            if ok:
+                break
+            time.sleep(0.5)
+        projects = window.evaluate_js("window.MAPMISE_PROJECTS_LOADED === true")
+        print(f"smoke test: window loaded, app ready={ok}, API answered={projects}", flush=True)
+        _SMOKE["code"] = 0 if ok and projects else 1
+    except Exception as e:  # noqa: BLE001
+        print(f"smoke test failed: {type(e).__name__}: {e}", flush=True)
+        _SMOKE["code"] = 1
+    finally:
+        window.destroy()

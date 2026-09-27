@@ -1,8 +1,9 @@
 "use strict";
-// mapmise GUI — a view over the engine. All decisions happen server-side; this file only shows them.
+// Mapmise interface — a view over the engine. Every decision is made server-side; this file only presents it.
 
 const $ = (id) => document.getElementById(id);
-const state = { prep: null, project: null, job: null, use: {}, skip: [], aoiUpload: null, maps: {} };
+const state = { prep: null, project: null, job: null, jobTitle: "", use: {}, skip: [], aoiUpload: null, maps: {}, names: {} };
+if (window.GF_NATIVE) document.documentElement.classList.add("native");
 
 async function api(path, body) {
   const res = await fetch(path, {
@@ -10,271 +11,375 @@ async function api(path, body) {
     headers: { "Content-Type": "application/json", "X-Mapmise-Token": window.GF_TOKEN },
     body: body ? JSON.stringify(body) : undefined,
   });
-  const data = await res.json().catch(() => ({ error: "The app did not answer." }));
+  const data = await res.json().catch(() => ({ error: "Mapmise didn't answer. Is it still running?" }));
   if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
   return data;
 }
 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const size = (b) => (b >= 5e7 ? (b / 1e9).toFixed(2) + " GB" : Math.round(b / 1e6) + " MB");
-const BADGE = { ok: ["b-ok", "Ready"], composite: ["b-composite", "Cloudy"], infeasible: ["b-infeasible", "Infeasible"],
-  incomplete: ["b-incomplete", "Partial"], skipped: ["b-skipped", "Not possible"], uncovered: ["b-uncovered", "Not covered"] };
-const badge = (k, text) => `<span class="badge ${BADGE[k][0]}">${esc(text || BADGE[k][1])}</span>`;
+const size = (b) => (b >= 1e9 ? (b / 1e9).toFixed(2) + " GB" : b >= 1e6 ? Math.round(b / 1e6) + " MB" : b > 0 ? "<1 MB" : "0 MB");
+const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+const NEED = (n) => { const [theme, t] = String(n).split("/"); return cap(theme.replace(/_/g, " ")) + ({ series: ", time series", pair: ", before and after" }[t] || ""); };
+const km2 = (a) => `${Math.round(a).toLocaleString()} km²`;
+const fmtDate = (d) => { const x = new Date(d + "T00:00:00"); return isNaN(x) ? d : x.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }); };
+const CHEV = '<svg class="chev" width="8" height="13" viewBox="0 0 8 13" aria-hidden="true"><path d="M1.5 1.5 6.5 6.5l-5 5" fill="none" stroke="currentColor" stroke-width="2"/></svg>';
+const WARN = '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2 1 21h22L12 2zm1 15h-2v2h2v-2zm0-7h-2v5h2v-5z"/></svg>';
+const INFO = '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>';
 
+// ------------------------------------------------------------ navigation
+
+const segs = [...document.querySelectorAll("#steps button")];
+function placeThumb() {
+  const b = segs.find((x) => x.classList.contains("on")) || segs[0];
+  const t = document.querySelector(".segmented .thumb");
+  t.style.left = b.offsetLeft + "px"; t.style.width = b.offsetWidth + "px";
+}
 function show(screen) {
   document.querySelectorAll(".screen").forEach((s) => (s.hidden = s.dataset.screen !== screen));
-  document.querySelectorAll("#steps button").forEach((b) => b.classList.toggle("on", b.dataset.screen === screen));
-  Object.values(state.maps).forEach((m) => setTimeout(() => m.invalidateSize(), 50));
+  segs.forEach((b) => { b.classList.toggle("on", b.dataset.screen === screen); b.setAttribute("aria-current", b.dataset.screen === screen ? "page" : "false"); });
+  placeThumb();
+  Object.values(state.maps).forEach((m) => setTimeout(() => m.invalidateSize(), 60));
+  window.scrollTo({ top: 0 });
 }
-document.querySelectorAll("#steps button").forEach((b) => (b.onclick = () => { show(b.dataset.screen); if (b.dataset.screen === "library") loadLibrary(); }));
+segs.forEach((b) => (b.onclick = () => { show(b.dataset.screen); if (b.dataset.screen === "library") loadLibrary(); }));
+document.querySelectorAll("[data-go]").forEach((b) => (b.onclick = () => show(b.dataset.go)));
+window.addEventListener("resize", placeThumb);
+
+// A sheet in place of the browser's confirm(): it works the same in the app window and in a browser
+function ask(title, text, ok = "OK") {
+  return new Promise((resolve) => {
+    $("sheet-title").textContent = title; $("sheet-text").textContent = text; $("sheet-ok").textContent = ok;
+    $("sheet").hidden = false; $("sheet-ok").focus();
+    const done = (v) => { $("sheet").hidden = true; document.removeEventListener("keydown", key); resolve(v); };
+    const key = (e) => { if (e.key === "Escape") done(false); };
+    document.addEventListener("keydown", key);
+    $("sheet-ok").onclick = () => done(true); $("sheet-cancel").onclick = () => done(false);
+  });
+}
 
 $("quit-btn").onclick = async () => {
   try {
     let r = await api("/api/quit", {});
     if (!r.ok) {
-      if (!confirm(`${r.running} download job(s) are still running. Quit anyway? They can be resumed later from the project.`)) return;
+      if (!(await ask("Quit Mapmise?", `${r.running} acquisition job(s) are still running. Files finished so far are kept, and you can resume from the project later.`, "Quit"))) return;
       r = await api("/api/quit", { force: true });
     }
-    document.body.innerHTML = '<main><div class="card"><p><strong>mapmise has stopped.</strong></p><p class="muted small">You can close this tab. Start mapmise again from your applications menu.</p></div></main>';
-  } catch (e) { alert(e.message); }
+    document.body.innerHTML = '<main><div class="empty"><h2 class="title">Mapmise has stopped</h2><p class="subhead">You can close this tab. Start Mapmise again from your applications.</p></div></main>';
+  } catch (e) { $("ask-error").textContent = e.message; $("ask-error").hidden = false; }
 };
 
 function drawAoi(id, geojson) {
   if (!state.maps[id]) {
     const m = L.map(id, { zoomControl: true, attributionControl: true });
     L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 18, attribution: "© OpenStreetMap contributors" }).addTo(m);
-    state.maps[id] = m;
-    m._aoi = null;
+    state.maps[id] = m; m._aoi = null;
   }
   const m = state.maps[id];
   if (m._aoi) m.removeLayer(m._aoi);
-  m._aoi = L.geoJSON(geojson, { style: { color: "#185fa5", weight: 2, fillOpacity: 0.12 } }).addTo(m);
-  setTimeout(() => { m.invalidateSize(); m.fitBounds(m._aoi.getBounds(), { padding: [12, 12] }); }, 60);
+  const blue = getComputedStyle(document.documentElement).getPropertyValue("--blue").trim() || "#007aff";
+  m._aoi = L.geoJSON(geojson, { style: { color: blue, weight: 2.5, fillOpacity: 0.12 } }).addTo(m);
+  setTimeout(() => { m.invalidateSize(); m.fitBounds(m._aoi.getBounds(), { padding: [14, 14] }); }, 80);
 }
 
-// ------------------------------------------------------------ 1. Ask
+// ------------------------------------------------------------ Ask
+
+function setError(id, msg) { const el = $(id); el.textContent = msg || ""; el.hidden = !msg; }
 
 async function loadProjects() {
   try {
     const d = await api("/api/projects");
-    const sel = $("opt-project");
-    sel.innerHTML = '<option value="">New project</option>' + d.projects.map((p) => `<option value="${esc(p.path)}">${esc(p.name)} · ${esc(p.start)} → ${esc(p.end)}</option>`).join("");
-    $("recent-card").hidden = d.projects.length === 0;
-    $("recent").innerHTML = d.projects.map((p) => `<div class="recent-item" data-path="${esc(p.path)}"><span>${esc(p.name)} <span class="muted small">· ${esc(p.start)} → ${esc(p.end)} · ${Math.round(p.area_km2).toLocaleString()} km²</span></span><span class="muted small">${esc(p.last_ask || "")}</span></div>`).join("");
-    document.querySelectorAll(".recent-item").forEach((el) => (el.onclick = () => openProject(el.dataset.path)));
-  } catch (e) { /* listing is a convenience */ }
+    window.MAPMISE_PROJECTS_LOADED = true;
+    $("opt-project").innerHTML = '<option value="">New project</option>' + d.projects.map((p) => `<option value="${esc(p.path)}">${esc(p.name)}</option>`).join("");
+    $("recent-wrap").hidden = d.projects.length === 0;
+    $("recent").innerHTML = d.projects.slice(0, 6).map((p, i) => `<div class="row link inset" data-path="${esc(p.path)}" tabindex="0" role="button">
+        <span class="glyph ${["g-blue", "g-green", "g-indigo", "g-teal", "g-orange"][i % 5]}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" aria-hidden="true"><path d="M3 7l6-3 6 3 6-3v13l-6 3-6-3-6 3z"/></svg></span>
+        <div class="grow"><div class="headline" style="font-size:.98rem">${esc(p.name)}</div><div class="caption">${esc(fmtDate(p.start))} – ${esc(fmtDate(p.end))} · ${km2(p.area_km2)}${p.last_ask ? ` · “${esc(p.last_ask)}”` : ""}</div></div>${CHEV}</div>`).join("");
+    document.querySelectorAll("#recent .row").forEach((el) => {
+      el.onclick = () => openProject(el.dataset.path);
+      el.onkeydown = (e) => { if (e.key === "Enter") openProject(el.dataset.path); };
+    });
+  } catch { /* the list is a convenience */ }
 }
 
+$("opts-toggle").onclick = () => { const o = $("opts"); o.hidden = !o.hidden; $("opts-toggle").setAttribute("aria-expanded", String(!o.hidden)); };
 $("opt-aoi").onchange = async (ev) => {
-  const f = ev.target.files[0];
-  state.aoiUpload = null;
+  const f = ev.target.files[0]; state.aoiUpload = null;
   if (!f) return;
   try { state.aoiUpload = { name: f.name, geojson: JSON.parse(await f.text()) }; }
-  catch { showError("ask-error", "That file is not valid GeoJSON."); ev.target.value = ""; }
+  catch { setError("ask-error", "That file isn't valid GeoJSON. Choose a .geojson file."); ev.target.value = ""; }
 };
-
-function showNote(id, msg) { const el = $(id); if (el) { el.textContent = msg; el.hidden = !msg; } }
-function showError(id, msg) { const el = $(id); el.textContent = msg; el.hidden = !msg; }
-$("ask-text").addEventListener("input", () => showError("ask-error", ""));
-$("ask-text").addEventListener("keydown", (e) => { if (e.key === "Enter") plan(); });
+$("ask-text").addEventListener("input", () => setError("ask-error", ""));
+$("ask-text").addEventListener("keydown", (e) => { if (e.key === "Enter") { state.use = {}; state.skip = []; plan(); } });
 $("plan-btn").onclick = () => { state.use = {}; state.skip = []; plan(); };
+document.querySelectorAll("#examples .chip").forEach((c) => (c.onclick = () => { $("ask-text").value = c.textContent; $("ask-text").focus(); }));
 
 async function plan() {
   const text = $("ask-text").value.trim();
-  if (!text) return showError("ask-error", "Describe what you want to analyse first.");
-  showError("ask-error", ""); showError("plan-error", "");
+  if (!text) { setError("ask-error", "Describe what you want to analyse first."); $("ask-text").focus(); return; }
+  setError("ask-error", ""); setError("plan-error", "");
   const btn = $("plan-btn"); btn.disabled = true; btn.textContent = "Planning…";
-  showNote("ask-note", "Finding the place, searching the catalogues and checking clouds and coverage. The first plan for a new area can take up to a minute.");
+  if (!state.replan) $("ask-busy").hidden = false;
   try {
     const body = { text, place: $("opt-place").value, event: $("opt-event").value, start: $("opt-start").value, end: $("opt-end").value,
       mode: $("opt-mode").value, project: state.prep?.project && state.replan ? state.prep.project : $("opt-project").value,
       use: state.use, skip: state.skip };
     if (state.aoiUpload && !body.project) { body.aoi_geojson = state.aoiUpload.geojson; body.aoi_name = state.aoiUpload.name; }
     state.prep = await api("/api/prepare", body);
-    state.replan = false;
-    show("plan");      // make the map container visible before drawing into it
+    state.prep.plans.forEach((p) => (state.names[p.source] = p.source_name));
+    show("plan");
     renderPlan();
   } catch (e) {
-    showError(state.replan ? "plan-error" : "ask-error", e.message);
-  } finally { btn.disabled = false; btn.textContent = "Plan"; state.replan = false; showNote("ask-note", ""); }
+    setError(state.replan ? "plan-error" : "ask-error", e.message);
+  } finally { btn.disabled = false; btn.textContent = "Create plan"; state.replan = false; $("ask-busy").hidden = true; }
 }
 
-// ------------------------------------------------------------ 2. Plan
+// ------------------------------------------------------------ Plan
+
+const W = { "feasible-single": ["d-green", "Ready"], "feasible-composite": ["d-orange", "Needs several scenes"], infeasible: ["d-red", "Too cloudy"],
+  incomplete: ["d-orange", "Partial coverage"], "out-of-range": ["d-gray", "Not covered"] };
+const WLABEL = (l) => ({ pre: "Before", post: "After", static: "" }[l] ?? l);
+
+function verdictLine(p, have, lib) {
+  if (have) return '<span class="dot d-green"></span>Already in this project';
+  if (p.worst === "skipped") return `<span class="dot d-gray"></span>Not possible${p.windows[0] ? ` — ${esc(p.windows[0].text)}` : ""}`;
+  const suffix = lib ? " · in your library" : "";
+  if (p.windows.length <= 3) {
+    return p.windows.map((w) => { const [d, t] = W[w.verdict] || ["d-gray", w.verdict]; const l = WLABEL(w.label);
+      return `<span class="dot ${d}"></span>${l ? `${esc(l)}: ${t.toLowerCase()}` : t}`; }).join(" · ") + suffix;
+  }
+  const counts = {};
+  p.windows.forEach((w) => { counts[w.verdict] = (counts[w.verdict] || 0) + 1; });
+  return Object.entries(counts).map(([v, n]) => { const [d, t] = W[v] || ["d-gray", v]; return `<span class="dot ${d}"></span>${t} · ${n} of ${p.windows.length} periods`; }).join(" ") + suffix;
+}
 
 function renderPlan() {
   const r = state.prep;
+  $("plan-empty").hidden = true; $("plan-body").hidden = false;
+  const placeLine = r.place.split("\n")[0].split(" — ")[0].replace(/\s*\((existing project|[^)]*)\)\s*$/, "");
+  const placeShort = placeLine.split(",")[0];
+  $("plan-title").textContent = r.rules.length ? `${cap(r.rules.join(" and ").replace(/_/g, " "))} in ${placeShort}` : `Data for ${placeShort}`;
+  $("plan-sub").textContent = `${fmtDate(r.start)} – ${fmtDate(r.end)} · ${km2(r.area_km2)} · ${r.plans.length} datasets`;
+
+  const how = (id) => (r.how[id] === "keyword" ? "a word in your question" : r.how[id].replace(/^meaning: /, "understood by meaning: "));
   $("understood").innerHTML = `
-    <p class="small" style="margin:0 0 8px"><strong>${esc(r.place.split("\n")[0])}</strong><br><span class="muted">${Math.round(r.area_km2).toLocaleString()} km² · ${esc(r.country || "")} · EPSG:${r.epsg}</span></p>
-    <p class="small" style="margin:0 0 8px">${esc(r.start)} → ${esc(r.end)} <span class="muted">(${esc(r.period_source)})</span></p>
-    <p class="small" style="margin:0 0 4px">${r.n_needs} data needs, because:</p>
-    ${r.rules.map((id) => `<p class="small" style="margin:0 0 2px">· <strong>${esc(id)}</strong> <span class="muted">${esc(r.how[id] === "keyword" ? "word in your question" : r.how[id].replace(/^meaning: /, "built-in AI: "))}</span></p>`).join("")}
-    ${r.ai !== "on" ? `<p class="small muted" style="margin:4px 0 0">Built-in AI ${esc(r.ai)} — keyword rules only.</p>` : ""}
-    ${r.event_note ? `<p class="small" style="margin:8px 0 0;color:var(--warn)">${esc(r.event_note)}</p>` : ""}
-    ${r.notes.length ? `<p class="small muted" style="margin:8px 0 0">${r.notes.map(esc).join("<br>")}</p>` : ""}
-    ${r.library_here.length ? `<p class="small" style="margin:8px 0 0">Already in your library over this area:</p>${r.library_here.map((g) => `<p class="small muted" style="margin:0">· ${esc(g.source)} — ${g.files} files${g.dates.length ? ` (${esc(g.dates.join(" → "))})` : ""} in ${esc(g.project)}</p>`).join("")}` : ""}
-    <p class="muted small" style="margin:8px 0 0">Project: ${esc(r.project)}</p>`;
+    <div class="row"><div class="grow">Place</div><div class="value">${esc(placeLine)}</div></div>
+    <div class="row"><div class="grow">Area</div><div class="value num">${km2(r.area_km2)}${r.country ? ` · ${esc(r.country)}` : ""}</div></div>
+    <div class="row"><div class="grow">Period</div><div class="value num">${esc(fmtDate(r.start))} – ${esc(fmtDate(r.end))}</div></div>
+    <div class="row"><div class="grow">Analysis</div><div class="value">${r.rules.map((id) => esc(cap(id.replace(/_/g, " ")))).join(", ") || "—"}</div></div>
+    <div class="row"><div class="grow">Projection</div><div class="value num">EPSG:${r.epsg}</div></div>`;
+  $("understood-notes").innerHTML = [
+    `<p class="footnote understood-note">${r.rules.map((id) => `<b>${esc(cap(id.replace(/_/g, " ")))}</b> — ${esc(how(id))}.`).join(" ")} ${r.ai !== "on" ? `Built-in AI ${esc(r.ai)}.` : ""}</p>`,
+    `<p class="footnote understood-note">Period ${esc(r.period_source)}.</p>`,
+    r.event_note ? `<p class="footnote understood-note">${esc(r.event_note)}</p>` : "",
+    r.library_here.length ? `<p class="footnote understood-note">Already in your library here: ${r.library_here.map((g) => `${esc(state.names[g.source] || g.source)} (${g.files} files)`).join(", ")}.</p>` : "",
+    r.notes.length ? `<p class="footnote understood-note">${r.notes.map(esc).join("<br>")}</p>` : "",
+    `<p class="footnote understood-note" title="${esc(r.project)}">Project folder: ${esc(r.project.split(/[\\/]/).pop())}</p>`].join("");
   drawAoi("map", r.aoi);
 
+  const LEVEL = { infeasible: "too cloudy", composite: "needs several scenes", incomplete: "partial coverage", uncovered: "some years not covered" };
+  const WHEN = { pre: "Before the event", post: "After the event" };
+  const bySource = {};
+  r.attention.forEach((a) => (bySource[a.source] = bySource[a.source] || []).push(a));
+  $("attention").innerHTML = Object.entries(bySource).map(([src, items]) => {
+    const worst = items.find((a) => a.level === "infeasible") || items[0];
+    const lines = items.map((a) => { const m = a.text.match(/^([\w-]+): (.*)$/); const when = m && (WHEN[m[1]] || m[1]);
+      return `<div class="footnote">${when ? `<b>${esc(when)}:</b> ${esc(cap(m[2]))}` : esc(cap(a.text))}</div>`; }).join("");
+    return `<div class="notice">${WARN}<div><div class="headline">${esc(state.names[src] || src)} — ${esc(LEVEL[worst.level] || worst.level)}</div>${lines}</div></div>`;
+  }).join("");
+  $("unmet").innerHTML = r.unmet.length ? `<p class="section-label">Not available</p>` + r.unmet.map((u) => `<div class="notice gray">${INFO}<div><div class="headline">${esc(cap(u.theme))}</div><div class="footnote">${esc(u.why)}</div></div></div>`).join("") : "";
+
   $("plan-rows").innerHTML = r.plans.map((p, i) => {
-    const needs = p.needs.map((n) => `${n.theme} <span class="muted">(${n.temporal === "pair" ? "before/after" : n.temporal})</span>`).join(", ");
-    const tag = p.fallback_for ? '<span class="tag">added: cloud fallback</span>' : p.complement_for ? '<span class="tag">added: fills missing years</span>' : "";
-    const opts = [p.source, ...p.alternatives].map((s) => `<option ${s === p.source ? "selected" : ""}>${esc(s)}</option>`).join("");
     const have = p.files && p.present === p.files;
     const lib = !have && p.files && p.present + p.from_library === p.files;
-    const sz = have ? "have" : lib ? "0 MB" : p.size_known ? (p.unknown_sizes ? "≥" : "") + size(p.bytes) : "live";
+    const sz = have ? "Have" : lib ? "0 MB" : p.size_known ? (p.unknown_sizes ? "≥ " : "") + size(p.bytes) : "Live";
+    const pr = p.needs[0]?.priority;
+    const tags = (pr === "required" ? '<span class="tag">Required</span>' : pr === "optional" ? '<span class="tag gray">Optional</span>' : "")
+      + (p.fallback_for ? '<span class="tag gray">Cloud-free alternative</span>' : "") + (p.complement_for ? '<span class="tag gray">Fills missing years</span>' : "");
     const skipped = p.worst === "skipped";
-    return `<div class="prow" data-i="${i}">
-      <input type="checkbox" ${skipped ? "disabled" : "checked"} aria-label="Include ${esc(p.source)}">
-      <span class="need" title="${esc(p.needs.map((n) => n.why).join(" · "))}">${needs}<small>${esc(p.needs[0]?.priority || "")} ${tag}</small></span>
-      <select data-need="${esc(p.need_key)}" ${p.alternatives.length ? "" : "disabled"} aria-label="Source">${opts}</select>
-      <span>${p.present ? `${p.present}/${p.files}` : p.files}</span><span>${sz}</span><span>${have ? badge("ok", "Already have") : lib ? badge("ok", "In your library") : badge(p.worst)}</span>
-      <div class="detail" hidden>
-        <strong>${esc(p.source_name)}</strong> · ${esc(p.licence)}${p.resolution_m ? ` · ${p.resolution_m} m` : ""}
-        <ul>${p.needs.map((n) => `<li>${esc(n.why)}</li>`).join("")}${p.explanations.slice(0, 2).map((x) => `<li>${esc(x)}</li>`).join("")}</ul>
-        <ul>${p.windows.slice(0, 8).map((w) => `<li>${esc(w.label)}: ${esc(w.text)}</li>`).join("")}${p.windows.length > 8 ? `<li>… ${p.windows.length - 8} more periods</li>` : ""}</ul>
-      </div></div>`;
+    const alts = [p.source, ...p.alternatives];
+    return `<div class="row link ds" data-i="${i}">
+        <div class="grow"><div class="headline">${esc(p.source_name)} ${tags}</div>
+          <div class="footnote">${esc(cap(p.needs.map((n) => n.why).join("; ")))}</div>
+          <div class="verdict">${verdictLine(p, have, lib)}</div></div>
+        <div class="size num">${sz}</div>
+        <input type="checkbox" class="switch" ${skipped || have ? "" : "checked"} ${skipped ? "disabled" : ""} aria-label="Include ${esc(p.source_name)}">
+      </div>
+      <div class="detail" data-for="${i}" hidden>
+        ${esc(p.licence)}${p.resolution_m ? ` · ${p.resolution_m} m` : ""} · ${p.files} file${p.files === 1 ? "" : "s"}
+        ${p.explanations.length ? `<ul>${p.explanations.slice(0, 3).map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
+        ${p.windows.length ? `<ul>${p.windows.slice(0, 8).map((w) => `<li>${esc(WLABEL(w.label) || "Static")}: ${esc(w.text)}</li>`).join("")}${p.windows.length > 8 ? `<li>and ${p.windows.length - 8} more periods</li>` : ""}</ul>` : ""}
+        ${p.alternatives.length ? `<div class="src"><span>Source</span><select data-need="${esc(p.need_key)}" aria-label="Source for ${esc(p.need_key)}">${alts.map((s) => `<option value="${esc(s)}" ${s === p.source ? "selected" : ""}>${esc(state.names[s] || s)}</option>`).join("")}</select></div>` : ""}
+      </div>`;
   }).join("");
 
-  document.querySelectorAll(".prow .need").forEach((el) => (el.onclick = () => { const d = el.parentElement.querySelector(".detail"); d.hidden = !d.hidden; }));
-  document.querySelectorAll(".prow input").forEach((cb) => (cb.onchange = total));
-  document.querySelectorAll(".prow select").forEach((sel) => (sel.onchange = () => {
-    state.use[sel.dataset.need] = sel.value; state.replan = true; $("total-sub").textContent = "· re-planning with " + sel.value + "…"; plan();
+  document.querySelectorAll("#plan-rows .ds").forEach((row) => (row.onclick = (e) => {
+    if (e.target.closest(".switch")) return;
+    const d = document.querySelector(`.detail[data-for="${row.dataset.i}"]`); d.hidden = !d.hidden; row.classList.toggle("open", !d.hidden);
+  }));
+  document.querySelectorAll("#plan-rows .switch").forEach((cb) => (cb.onchange = total));
+  document.querySelectorAll("#plan-rows select").forEach((sel) => (sel.onchange = () => {
+    state.use[sel.dataset.need] = sel.value; state.replan = true;
+    $("total-sub").textContent = `Re-planning with ${state.names[sel.value] || sel.value}…`; plan();
   }));
   total();
-
-  const att = r.attention;
-  $("attention-card").hidden = att.length === 0;
-  $("attention").innerHTML = att.map((a) => `<p class="att">${badge(a.level === "uncovered" ? "uncovered" : a.level)} <strong>${esc(a.source)}</strong> ${esc(a.text)}</p>`).join("");
-  $("unmet-card").hidden = r.unmet.length === 0;
-  $("unmet").innerHTML = r.unmet.map((u) => `<p class="att">${badge("skipped", "Unmet")} <strong>${esc(u.theme)}</strong> ${esc(u.why)}</p>`).join("");
 }
 
 function checkedPlans() {
-  return [...document.querySelectorAll(".prow")].filter((row) => row.querySelector("input").checked).map((row) => state.prep.plans[+row.dataset.i]);
+  return [...document.querySelectorAll("#plan-rows .ds")].filter((row) => row.querySelector(".switch").checked).map((row) => state.prep.plans[+row.dataset.i]);
 }
 function total() {
   const ps = checkedPlans();
-  $("total").textContent = size(ps.reduce((s, p) => s + (p.size_known ? p.bytes : 0), 0));
-  const have = ps.reduce((s, p) => s + p.present, 0);
+  const bytes = ps.reduce((s, p) => s + (p.size_known ? p.bytes : 0), 0);
   const fromLib = ps.reduce((s, p) => s + (p.from_library || 0), 0);
-  $("total-sub").textContent = `· ${ps.reduce((s, p) => s + p.files - p.present - (p.from_library || 0), 0)} files to download from ${ps.length} sources`
-    + (have ? ` · ${have} already in the project` : "") + (fromLib ? ` · ${fromLib} from your library` : "") + " · only your area is downloaded";
+  $("total").textContent = `${ps.length} dataset${ps.length === 1 ? "" : "s"} · ${size(bytes)}`;
+  $("total-sub").textContent = "Only your area is downloaded. You can stop and resume at any time." + (fromLib ? ` ${fromLib} file${fromLib === 1 ? "" : "s"} come from your library.` : "");
   $("fetch-btn").disabled = ps.length === 0;
 }
 
 $("fetch-btn").onclick = async () => {
   const ps = checkedPlans();
-  if (!ps.length) return showError("plan-error", "Tick at least one dataset.");
+  if (!ps.length) return setError("plan-error", "Select at least one dataset.");
   try {
     const j = await api("/api/run", { project: state.prep.project, request_id: state.prep.request_id, plan_ids: ps.map((p) => p.id) });
-    state.project = state.prep.project;
-    state.job = j.job;
-    show("fetch");
-    poll();
-  } catch (e) { showError("plan-error", e.message); }
+    state.project = state.prep.project; state.job = j.job;
+    state.jobTitle = $("plan-title").textContent; state.jobSub = $("plan-sub").textContent.split(" · ")[0];
+    startFetchView(); poll();
+  } catch (e) { setError("plan-error", e.message); }
 };
 
-// ------------------------------------------------------------ 3. Fetching
+// ------------------------------------------------------------ Acquisition
+
+function startFetchView() {
+  $("fetch-empty").hidden = true; $("fetch-body").hidden = false;
+  $("fetch-title").textContent = state.jobTitle || "Acquiring data"; $("fetch-sub").textContent = state.jobSub || "";
+  $("fetch-state").textContent = "Starting…"; $("ring").classList.remove("done"); setRing(0, "");
+  show("fetch");
+}
+function setRing(frac, sub) {
+  $("ring").style.strokeDashoffset = String(326.7 * (1 - frac));
+  $("ring-pct").textContent = `${Math.round(frac * 100)}%`; $("ring-sub").textContent = sub;
+}
 
 async function poll() {
   if (!state.job) return;
   let v;
   try { v = await api(`/api/job?id=${state.job}`); } catch (e) { $("fetch-note").textContent = e.message; return setTimeout(poll, 3000); }
+  const tot = v.plans.reduce((s, p) => s + p.total, 0), got = v.plans.reduce((s, p) => s + p.present, 0);
+  setRing(tot ? got / tot : 1, `${got} of ${tot} files`);
   $("progress").innerHTML = v.plans.map((p) => {
     const pct = p.total ? Math.round((100 * p.present) / p.total) : 100;
-    return `<div class="prog-row"><span>${esc(p.source)}</span><div class="bar"><div style="width:${pct}%"></div></div><span class="muted small">${p.present}/${p.total} · ${esc(p.status)}</span></div>`;
+    const finished = p.present >= p.total;
+    const label = finished ? "Done" : p.present ? `${p.present} of ${p.total}` : v.done ? "Stopped" : "Waiting";
+    return `<div class="row"><div class="grow"><div class="headline" style="font-size:.98rem">${esc(state.names[p.source] || p.source)}</div>
+      <div class="progress ${finished ? "done" : v.done ? "failed" : ""}"><i style="width:${pct}%"></i></div></div>
+      <div class="size num" style="${finished ? "color:var(--green)" : ""}">${label}</div></div>`;
   }).join("");
   $("log").textContent = v.messages.join("\n");
   if (v.done) {
     const r = v.result;
-    $("fetch-note").textContent = v.error ? `Stopped: ${v.error}` :
-      `Finished: ${r.fetched} files fetched${r.reused ? ` (${r.reused} from your library, no download)` : ""}, ${r.skipped} already present, ${r.failed} failed${r.failed ? " — open the project and fetch again to retry" : ""}.`;
+    $("ring").classList.toggle("done", !v.error && r && !r.failed);
+    $("fetch-state").textContent = v.error ? "Acquisition stopped" : r.failed ? `Finished with ${r.failed} failed file${r.failed === 1 ? "" : "s"}` : "Acquisition complete";
+    $("fetch-note").textContent = v.error ? v.error :
+      `${r.fetched} file${r.fetched === 1 ? "" : "s"} acquired${r.reused ? `, ${r.reused} from your library without downloading` : ""}${r.skipped ? `, ${r.skipped} already present` : ""}.`
+      + (r.failed ? " Open the project and choose Acquire missing to retry." : "");
     state.job = null;
     return;
   }
+  $("fetch-state").textContent = "Acquiring only your area…";
   setTimeout(poll, 1500);
 }
 $("to-project").onclick = () => openProject(state.project || state.prep?.project);
 
-// ------------------------------------------------------------ 4. Project
+// ------------------------------------------------------------ Project
 
-const MARK = { complete: ["b-ok", "Complete"], partial: ["b-incomplete", "Partial"], missing: ["b-incomplete", "Not fetched"], skipped: ["b-skipped", "Not possible"] };
+const MARK = { complete: ["d-green", "Complete"], partial: ["d-orange", "Partial"], missing: ["d-orange", "Not acquired"], skipped: ["d-gray", "Not possible"] };
+function note(msg) { $("project-note").textContent = msg; $("project-note").hidden = !msg; }
 
 async function openProject(path) {
   if (!path) return;
   state.project = path;
+  $("project-empty").hidden = true; $("project-main").hidden = false;
   show("project");
-  $("report-card").hidden = true; $("project-note").textContent = "";
+  $("report-wrap").hidden = true; note("");
   try {
     const s = await api(`/api/status?project=${encodeURIComponent(path)}`);
     drawAoi("map2", s.aoi);
-    const missing = s.requests.reduce((n, r) => n + r.plans.filter((p) => p.state === "missing" || p.state === "partial").length, 0);
-    $("m-items").textContent = s.items; $("m-size").textContent = size(s.bytes_on_disk); $("m-missing").textContent = missing;
-    $("project-body").innerHTML = `<p class="lbl">${esc(s.name)} · ${esc(s.start)} → ${esc(s.end)}</p>` + s.requests.slice().reverse().map((r) => `
-      <p class="small" style="margin:12px 0 4px"><strong>“${esc(r.ask)}”</strong> <span class="muted">${esc(r.status)}</span></p>
-      ${r.plans.map((p) => `<div class="srow"><span></span><span>${esc(p.needs.join(", "))} <span class="muted">← ${esc(p.source)}</span>${p.reason ? `<br><span class="muted small">${esc(p.reason)}</span>` : ""}</span><span><span class="badge ${MARK[p.state][0]}">${MARK[p.state][1]} ${p.state === "skipped" ? "" : `${p.present}/${p.total}`}</span></span></div>`).join("")}
-      ${r.unmet.map((u) => `<div class="srow"><span></span><span>${esc(u.theme)} <span class="muted small">${esc(u.why)}</span></span><span><span class="badge b-skipped">Unmet</span></span></div>`).join("")}`).join("");
+    const plans = s.requests.flatMap((r) => r.plans);
+    const missing = plans.filter((p) => p.state === "missing" || p.state === "partial").length;
+    $("p-title").textContent = s.name;
+    $("p-sub").textContent = `${fmtDate(s.start)} – ${fmtDate(s.end)} · ${path.split(/[\\/]/).pop()}`;
+    $("p-sub").title = path;
+    $("m-sources").textContent = new Set(plans.map((p) => p.source)).size;
+    $("m-items").textContent = s.items; $("m-size").textContent = size(s.bytes_on_disk);
+    $("m-missing").textContent = missing; $("m-missing").style.color = missing ? "var(--orange)" : "";
+    $("project-body").innerHTML = s.requests.slice().reverse().map((r) => `
+      <p class="section-label" style="margin-top:0"><span class="request-ask">“${esc(r.ask)}”</span></p>
+      <div class="group" style="margin-bottom:18px">
+        ${r.plans.map((p) => `<div class="row"><span class="dot ${MARK[p.state][0]}"></span><div class="grow">${esc(state.names[p.source] || p.source)}
+          <div class="footnote">${esc(p.needs.map(NEED).join("; "))}${p.reason ? ` — ${esc(p.reason)}` : ""}</div></div>
+          <div class="value num">${p.state === "skipped" ? MARK.skipped[1] : `${MARK[p.state][1]} · ${p.present}/${p.total}`}</div></div>`).join("")}
+        ${r.unmet.map((u) => `<div class="row"><span class="dot d-gray"></span><div class="grow">${esc(cap(u.theme))}<div class="footnote">${esc(u.why)}</div></div><div class="value">Unavailable</div></div>`).join("")}
+      </div>`).join("");
     state.lastStatus = s;
-  } catch (e) { $("project-body").textContent = e.message; }
+  } catch (e) { $("project-body").innerHTML = `<p class="inline-error">${esc(e.message)}</p>`; }
 }
 
 $("open-qgis").onclick = async () => {
-  try { const r = await api("/api/open-qgis", { project: state.project }); $("project-note").textContent = r.ok ? `QGIS is opening with ${r.layers} layers.` : r.error; }
-  catch (e) { $("project-note").textContent = e.message; }
+  note("Preparing layers for QGIS…");
+  try { const r = await api("/api/open-qgis", { project: state.project }); note(r.ok ? `QGIS is opening with ${r.layers} layers.` : "QGIS isn't installed where Mapmise can find it. Install QGIS, or open the project folder in your GIS."); }
+  catch (e) { note(e.message); }
 };
-$("open-folder").onclick = () => api("/api/open-folder", { project: state.project }).catch((e) => ($("project-note").textContent = e.message));
+$("open-folder").onclick = () => api("/api/open-folder", { project: state.project }).catch((e) => note(e.message));
 $("show-report").onclick = async () => {
-  const d = await api(`/api/report?project=${encodeURIComponent(state.project)}`);
-  $("report").innerHTML = d.markdown ? md(d.markdown) : "<p class='muted'>No report yet — it is written when a fetch finishes.</p>";
-  $("report-card").hidden = false;
+  try {
+    const d = await api(`/api/report?project=${encodeURIComponent(state.project)}`);
+    $("report").innerHTML = d.markdown ? md(d.markdown) : "<p class='footnote'>The report is written when an acquisition finishes.</p>";
+    $("report-wrap").hidden = false; $("report-wrap").scrollIntoView({ behavior: "smooth", block: "start" });
+  } catch (e) { note(e.message); }
 };
 $("resume").onclick = async () => {
-  const s = state.lastStatus;
-  const req = s?.requests[s.requests.length - 1];
+  const s = state.lastStatus; const req = s?.requests[s.requests.length - 1];
   if (!req) return;
   const ids = req.plans.filter((p) => p.state === "missing" || p.state === "partial").map((p) => p.plan);
-  if (!ids.length) { $("project-note").textContent = "Nothing is missing."; return; }
-  const j = await api("/api/run", { project: state.project, request_id: req.id, plan_ids: ids });
-  state.job = j.job; show("fetch"); poll();
+  if (!ids.length) return note("Nothing is missing.");
+  try {
+    const j = await api("/api/run", { project: state.project, request_id: req.id, plan_ids: ids });
+    state.job = j.job; state.jobTitle = s.name; state.jobSub = "Acquiring what is missing"; startFetchView(); poll();
+  } catch (e) { note(e.message); }
 };
 $("share-recipe").onclick = async () => {
   try {
-    const res = await fetch(`/api/recipe?project=${encodeURIComponent(state.project)}`, { headers: { "X-Mapmise-Token": window.GF_TOKEN } });
-    if (!res.ok) throw new Error("Could not create the recipe.");
-    const name = (res.headers.get("Content-Disposition") || "").match(/filename="([^"]+)"/)?.[1] || "project.recipe.json";
-    const url = URL.createObjectURL(await res.blob());
-    const a = document.createElement("a"); a.href = url; a.download = name; a.click(); URL.revokeObjectURL(url);
-    $("project-note").textContent = `Recipe saved as ${name} (also kept in the project folder). Share it; anyone can rebuild this dataset with: mapmise recipe run ${name} <folder>`;
-  } catch (e) { $("project-note").textContent = e.message; }
+    const r = await api("/api/save-recipe", { project: state.project });
+    note(`Recipe saved as ${r.path.split(/[\\/]/).pop()} in the project folder. Anyone can rebuild this dataset from it with: mapmise recipe run <recipe> <folder>`);
+  } catch (e) { note(e.message); }
 };
 $("refresh").onclick = async () => {
   const req = state.lastStatus?.requests[state.lastStatus.requests.length - 1];
   if (!req) return;
   const today = new Date().toISOString().slice(0, 10);
-  if (req.period && req.period[1] >= today) { $("project-note").textContent = `The latest ask already runs to ${req.period[1]}.`; return; }
+  if (req.period && req.period[1] >= today) return note(`The latest question already runs to ${fmtDate(req.period[1])}.`);
   $("ask-text").value = req.ask; $("opt-project").value = state.project;
   $("opt-start").value = req.period ? req.period[0] : ""; $("opt-end").value = today; $("opt-event").value = req.event || "";
-  $("project-note").textContent = "Re-planning up to today — only new data will be fetched…";
+  note("Re-planning up to today; only new data will be acquired…");
   state.use = {}; state.skip = []; await plan();
 };
+$("ask-here").onclick = () => { $("opt-project").value = state.project; $("ask-text").value = ""; show("ask"); $("ask-text").focus(); };
+
+// ------------------------------------------------------------ Library
 
 async function loadLibrary() {
   try {
     const d = await api("/api/library");
     $("l-files").textContent = d.files; $("l-size").textContent = size(d.bytes); $("l-projects").textContent = d.by_project.length;
-    $("library-body").innerHTML = !d.files ? "<p class='muted small'>Empty — files are added as you fetch. Index older projects with: mapmise library --scan ~/mapmise-projects</p>" :
-      d.by_source.map((r) => `<div class="srow"><span></span><span>${esc(r.source)} <span class="muted small">in ${r.projects} project(s)</span></span><span class="muted small">${r.files} files · ${size(r.bytes)}</span></div>`).join("")
-      + `<p class="lbl" style="margin-top:14px">Projects</p>` + d.by_project.map((p) => `<div class="recent-item" data-path="${esc(p.project)}"><span>${esc(p.project.split("/").pop())}${p.exists ? "" : " <span class='muted small'>(folder missing)</span>"}</span><span class="muted small">${p.files} files · ${size(p.bytes)}</span></div>`).join("");
-    document.querySelectorAll("#library-body .recent-item").forEach((el) => (el.onclick = () => openProject(el.dataset.path)));
-  } catch (e) { $("library-body").textContent = e.message; }
+    $("library-body").innerHTML = !d.files
+      ? `<div class="empty" style="padding:48px 0"><h2 class="headline">Your library is empty</h2><p class="footnote">Files are added as you acquire them.</p></div>`
+      : `<p class="section-label">By source</p><div class="group">${d.by_source.map((r) => `<div class="row"><div class="grow">${esc(state.names[r.source] || r.source)}<div class="footnote">In ${r.projects} project${r.projects === 1 ? "" : "s"}</div></div><div class="value num">${r.files} files · ${size(r.bytes)}</div></div>`).join("")}</div>
+         <p class="section-label">Projects</p><div class="group">${d.by_project.map((p) => `<div class="row ${p.exists ? "link" : ""}" data-path="${esc(p.project)}"><div class="grow">${esc(p.project.split(/[\\/]/).pop())}${p.exists ? "" : '<div class="footnote">Folder no longer exists</div>'}</div><div class="value num">${p.files} files · ${size(p.bytes)}</div>${p.exists ? CHEV : ""}</div>`).join("")}</div>`;
+    document.querySelectorAll("#library-body .row.link").forEach((el) => (el.onclick = () => openProject(el.dataset.path)));
+  } catch (e) { $("library-body").innerHTML = `<p class="inline-error">${esc(e.message)}</p>`; }
 }
 
-$("ask-here").onclick = () => {
-  $("opt-project").value = state.project;
-  $("ask-text").value = ""; show("ask"); $("ask-text").focus();
-};
-
-// Small markdown renderer for REPORT.md: headings, tables, bullets, emphasis, code.
+// Small renderer for REPORT.md: headings, tables, bullets, emphasis, code
 function md(src) {
   const inline = (t) => esc(t).replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>").replace(/_([^_]+)_/g, "<em>$1</em>");
   const out = []; const lines = src.split("\n"); let i = 0;
@@ -284,7 +389,7 @@ function md(src) {
     else if (l.startsWith("|")) {
       const rows = []; while (i < lines.length && lines[i].startsWith("|")) { rows.push(lines[i]); i++; }
       const cells = (r) => r.split("|").slice(1, -1).map((c) => c.trim());
-      out.push("<table>" + rows.filter((r) => !/^\|[-| ]+\|$/.test(r)).map((r, k) => `<tr>${cells(r).map((c) => (k ? `<td>${inline(c)}</td>` : `<th>${inline(c)}</th>`)).join("")}</tr>`).join("") + "</table>");
+      out.push("<table>" + rows.filter((r) => !/^\|[-| :]+\|$/.test(r)).map((r, k) => `<tr>${cells(r).map((c) => (k ? `<td>${inline(c)}</td>` : `<th>${inline(c)}</th>`)).join("")}</tr>`).join("") + "</table>");
     } else if (l.startsWith("- ")) {
       const items = []; while (i < lines.length && lines[i].startsWith("- ")) { items.push(`<li>${inline(lines[i].slice(2))}</li>`); i++; }
       out.push(`<ul>${items.join("")}</ul>`);
@@ -293,4 +398,6 @@ function md(src) {
   return out.join("");
 }
 
-loadProjects();
+show("ask");
+api("/api/sources").then((n) => Object.assign(state.names, n)).catch(() => {}).finally(loadProjects);
+window.MAPMISE_READY = true;

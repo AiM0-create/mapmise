@@ -24,6 +24,8 @@ licences (the licence files are inside the app folder, next to each component):
 | rasterio, Shapely, numpy, pandas, GeoPandas, httpx, httpcore, pystac, pystac-client | BSD-3-Clause |
 | pyogrio, pyproj, PyYAML, onnxruntime | MIT |
 | tokenizers | Apache-2.0 |
+| pywebview (app window) | BSD-3-Clause |
+| pythonnet, clr-loader (Windows app window) | MIT |
 | certifi (certificate bundle) | MPL-2.0 — unmodified; source at https://github.com/certifi/python-certifi |
 | PyInstaller bootloader | GPL-2.0 with an exception that allows distributing bundled applications under any licence |
 

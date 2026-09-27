@@ -3,133 +3,172 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>mapmise</title>
+<title>Mapmise</title>
+<link rel="icon" href="/static/icon.svg">
 <link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css">
 <link rel="stylesheet" href="/static/app.css">
-<script>window.GF_TOKEN = "__TOKEN__"; window.GF_VERSION = "__VERSION__";</script>
+<script>window.GF_TOKEN = "__TOKEN__"; window.GF_VERSION = "__VERSION__"; window.GF_NATIVE = __NATIVE__;</script>
 </head>
 <body>
-<header class="top">
-  <div class="brand">mapmise <span class="muted small">__VERSION__ alpha</span></div>
-  <nav id="steps" aria-label="Steps">
-    <button data-screen="ask" class="on">1 · Ask</button>
-    <button data-screen="plan">2 · Plan</button>
-    <button data-screen="fetch">3 · Fetching</button>
-    <button data-screen="project">4 · Project</button>
+<header class="toolbar">
+  <div class="brand"><img src="/static/icon.svg" alt="">Mapmise <small>Alpha</small></div>
+  <nav class="segmented" id="steps" aria-label="Sections">
+    <span class="thumb" aria-hidden="true"></span>
+    <button data-screen="ask">Ask</button>
+    <button data-screen="plan">Plan</button>
+    <button data-screen="fetch">Acquisition</button>
+    <button data-screen="project">Project</button>
     <button data-screen="library">Library</button>
   </nav>
-  <button id="quit-btn" class="quit" title="Stop mapmise. Downloads in progress are asked about first.">Quit</button>
+  <div class="tools"><button id="quit-btn" class="text-btn" title="Stop Mapmise. Running acquisitions are asked about first.">Quit</button></div>
 </header>
 
 <main>
-  <!-- 1. Ask -->
+  <!-- Ask -->
   <section class="screen" data-screen="ask">
-    <div class="card">
-      <label for="ask-text" class="lbl">What do you want to analyse, where and when?</label>
-      <div class="row">
-        <input id="ask-text" type="text" placeholder="I heard a flood happened in Chitradurga in August 2026" autocomplete="off">
-        <button id="plan-btn" class="primary">Plan</button>
-      </div>
-      <p id="ask-error" class="error" hidden></p>
-      <p id="ask-note" class="muted small" hidden></p>
-      <details class="opts">
-        <summary>Options</summary>
-        <div class="grid4">
-          <label>Place (instead of the one in the sentence)<input id="opt-place" type="text" placeholder="Tumakuru, Karnataka"></label>
-          <label>Event date<input id="opt-event" type="date"></label>
-          <label>From<input id="opt-start" type="date"></label>
-          <label>To<input id="opt-end" type="date"></label>
-          <label>Boundary file (GeoJSON)<input id="opt-aoi" type="file" accept=".geojson,.json"></label>
-          <label>Optical scenes<select id="opt-mode"><option value="single">One per tile and period</option><option value="composite">Enough for a clear composite</option></select></label>
-          <label>Add to project<select id="opt-project"><option value="">New project</option></select></label>
-        </div>
-      </details>
-      <p class="muted small">Try: “Assess agricultural drought in Chitradurga during the 2026 monsoon” · “Urban expansion of Bengaluru between 2005 and 2025” · “Forest loss in Wayanad since 2015”</p>
+    <div class="hero">
+      <h1 class="large-title">What would you like to analyse?</h1>
+      <p class="subhead">Describe the analysis, the place and the period. Mapmise works out the data it needs and shows you a plan before anything is downloaded.</p>
     </div>
-    <div class="card" id="recent-card" hidden>
-      <p class="lbl">Your projects</p>
-      <div id="recent"></div>
+    <div class="field">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input id="ask-text" type="text" placeholder="Flood in Chitradurga in August 2026" autocomplete="off" aria-label="Your question">
+      <button id="plan-btn" class="primary">Create plan</button>
+    </div>
+    <p id="ask-error" class="inline-error" hidden></p>
+    <div id="ask-busy" class="busy" hidden><span class="spinner" aria-hidden="true"></span><span>Finding the place, searching the catalogues and checking cloud and coverage. A new area can take up to a minute.</span></div>
+    <div class="chips" id="examples">
+      <button class="chip">Agricultural drought in Chitradurga during the 2026 monsoon</button>
+      <button class="chip">Urban expansion of Bengaluru between 2005 and 2025</button>
+      <button class="chip">Forest loss in Wayanad since 2015</button>
+    </div>
+    <div class="disclosure"><button class="plain" id="opts-toggle" aria-expanded="false">Place, dates and boundary file</button></div>
+    <div class="options" id="opts" hidden>
+      <div class="group">
+        <label class="row"><span class="grow">Place</span><input id="opt-place" type="text" placeholder="Taken from your question"></label>
+        <label class="row"><span class="grow">From</span><input id="opt-start" type="date"></label>
+        <label class="row"><span class="grow">To</span><input id="opt-end" type="date"></label>
+        <label class="row"><span class="grow">Event date <span class="caption">for before and after data</span></span><input id="opt-event" type="date"></label>
+        <label class="row"><span class="grow">Boundary file <span class="caption">GeoJSON, instead of a place name</span></span><input id="opt-aoi" type="file" accept=".geojson,.json"></label>
+        <label class="row"><span class="grow">Optical scenes</span><select id="opt-mode"><option value="single">One per tile and period</option><option value="composite">Enough for a clear composite</option></select></label>
+        <label class="row"><span class="grow">Project</span><select id="opt-project"><option value="">New project</option></select></label>
+      </div>
+    </div>
+    <div class="two">
+      <div id="recent-wrap" hidden>
+        <p class="section-label">Recent projects</p>
+        <div class="group" id="recent"></div>
+      </div>
+      <div>
+        <p class="section-label">How it works</p>
+        <div class="group">
+          <div class="row inset"><span class="glyph g-indigo">1</span><div class="grow footnote"><b>Understand</b> — the place, the period and the data your analysis needs.</div></div>
+          <div class="row inset"><span class="glyph g-orange">2</span><div class="grow footnote"><b>Plan</b> — every dataset checked for coverage and cloud, with its size.</div></div>
+          <div class="row inset"><span class="glyph g-teal">3</span><div class="grow footnote"><b>Acquire</b> — only your area, organised and documented.</div></div>
+        </div>
+      </div>
     </div>
   </section>
 
-  <!-- 2. Plan -->
+  <!-- Plan -->
   <section class="screen" data-screen="plan" hidden>
-    <div class="plan-layout">
-      <div>
-        <div class="card">
-          <p class="lbl">Understood</p>
-          <div id="understood"></div>
+    <div id="plan-empty" class="empty"><h2 class="title">No plan yet</h2><p class="subhead">Ask a question to see which data your analysis needs.</p><button class="primary" data-go="ask">Ask a question</button></div>
+    <div id="plan-body" hidden>
+      <h1 class="title" id="plan-title"></h1>
+      <p class="subhead" id="plan-sub"></p>
+      <div class="split">
+        <div>
+          <div class="map" id="map"></div>
+          <p class="section-label">Understood</p>
+          <div class="group" id="understood"></div>
+          <div id="understood-notes"></div>
         </div>
-        <div class="card map-card"><div id="map"></div></div>
-      </div>
-      <div>
-        <div class="card">
-          <div class="table-head"><span></span><span>Need</span><span>Source</span><span>Files</span><span>Size</span><span>Verdict</span></div>
-          <div id="plan-rows"></div>
-          <div class="plan-foot">
-            <span><strong id="total"></strong> <span class="muted" id="total-sub"></span></span>
-            <button id="fetch-btn" class="primary">Fetch</button>
-          </div>
-          <p id="plan-error" class="error" hidden></p>
-        </div>
-        <div class="card" id="attention-card" hidden>
-          <p class="lbl">Needs your attention</p>
+        <div>
           <div id="attention"></div>
-        </div>
-        <div class="card" id="unmet-card" hidden>
-          <p class="lbl">Not available</p>
+          <p class="section-label">Datasets <span class="caption">— select a row for details</span></p>
+          <div class="group" id="plan-rows"></div>
           <div id="unmet"></div>
         </div>
       </div>
+      <div class="bottom-bar">
+        <div class="grow"><div class="headline num" id="total"></div><div class="caption" id="total-sub"></div></div>
+        <p id="plan-error" class="inline-error" hidden></p>
+        <button id="fetch-btn" class="primary">Acquire</button>
+      </div>
     </div>
   </section>
 
-  <!-- 3. Fetching -->
+  <!-- Acquisition -->
   <section class="screen" data-screen="fetch" hidden>
-    <div class="card">
-      <div id="progress"></div>
-      <p id="fetch-note" class="muted small">Only your area is downloaded. Finished files are kept if you close this window; open the project again and fetch to resume.</p>
-      <pre id="log" class="log"></pre>
+    <div id="fetch-empty" class="empty"><h2 class="title">Nothing is being acquired</h2><p class="subhead">Approve a plan to start an acquisition.</p></div>
+    <div id="fetch-body" hidden>
+      <h1 class="title" id="fetch-title">Acquiring data</h1>
+      <p class="subhead" id="fetch-sub"></p>
+      <div class="group overall">
+        <svg class="ring" viewBox="0 0 120 120" aria-hidden="true"><circle cx="60" cy="60" r="52" class="ring-track"/><circle cx="60" cy="60" r="52" class="ring-fill" id="ring" transform="rotate(-90 60 60)"/></svg>
+        <div class="ring-label"><div class="ring-pct num" id="ring-pct">0%</div><div class="caption num" id="ring-sub"></div></div>
+        <div class="grow"><div class="headline" id="fetch-state">Starting…</div><p class="footnote" id="fetch-note">Finished files are kept if you close Mapmise. Open the project later to resume from where it stopped.</p>
+          <button class="secondary" id="to-project">View project</button></div>
+      </div>
+      <p class="section-label">Datasets</p>
+      <div class="group" id="progress"></div>
+      <details class="log-details"><summary>Activity</summary><pre id="log" class="log"></pre></details>
     </div>
-    <div class="row-buttons"><button id="to-project">View project</button></div>
   </section>
 
-  <!-- 4. Project -->
+  <!-- Project -->
   <section class="screen" data-screen="project" hidden>
-    <div class="metrics">
-      <div class="metric"><p class="lbl">Items</p><p class="big" id="m-items">–</p></div>
-      <div class="metric"><p class="lbl">On disk</p><p class="big" id="m-size">–</p></div>
-      <div class="metric"><p class="lbl">Missing</p><p class="big" id="m-missing">–</p></div>
+    <div id="project-empty" class="empty"><h2 class="title">No project open</h2><p class="subhead">Open one from Recent projects, or ask a new question.</p><button class="primary" data-go="ask">Ask a question</button></div>
+    <div id="project-main" hidden>
+      <h1 class="title" id="p-title"></h1>
+      <p class="subhead" id="p-sub"></p>
+      <div class="stats">
+        <div class="stat"><div class="caption">Datasets</div><div class="v num" id="m-sources">–</div></div>
+        <div class="stat"><div class="caption">Items</div><div class="v num" id="m-items">–</div></div>
+        <div class="stat"><div class="caption">On disk</div><div class="v num" id="m-size">–</div></div>
+        <div class="stat"><div class="caption">Missing</div><div class="v num" id="m-missing">–</div></div>
+      </div>
+      <div class="actions">
+        <button id="open-qgis" class="primary">Open in QGIS</button>
+        <button id="open-folder" class="secondary">Show in folder</button>
+        <button id="show-report" class="secondary">View report</button>
+        <button id="share-recipe" class="secondary">Share recipe</button>
+        <button id="resume" class="secondary">Acquire missing</button>
+        <button id="refresh" class="secondary">Refresh to today</button>
+        <button id="ask-here" class="plain">Ask another question here</button>
+      </div>
+      <p id="project-note" class="status-line" hidden></p>
+      <div class="split">
+        <div class="map" id="map2"></div>
+        <div id="project-body"></div>
+      </div>
+      <div id="report-wrap" hidden>
+        <p class="section-label">Acquisition report</p>
+        <div class="group report" id="report"></div>
+      </div>
     </div>
-    <div class="plan-layout">
-      <div class="card map-card"><div id="map2"></div></div>
-      <div class="card"><div id="project-body"></div></div>
-    </div>
-    <div class="row-buttons">
-      <button id="open-qgis" class="primary">Open in QGIS</button>
-      <button id="show-report">Report</button>
-      <button id="open-folder">Show folder</button>
-      <button id="resume">Fetch missing</button>
-      <button id="refresh">Refresh to today</button>
-      <button id="share-recipe">Share recipe</button>
-      <button id="ask-here">Ask something else here</button>
-    </div>
-    <p id="project-note" class="muted small"></p>
-    <div class="card" id="report-card" hidden><div id="report" class="report"></div></div>
   </section>
+
   <!-- Library -->
   <section class="screen" data-screen="library" hidden>
-    <div class="metrics">
-      <div class="metric"><p class="lbl">Files</p><p class="big" id="l-files">–</p></div>
-      <div class="metric"><p class="lbl">On disk</p><p class="big" id="l-size">–</p></div>
-      <div class="metric"><p class="lbl">Projects</p><p class="big" id="l-projects">–</p></div>
+    <h1 class="title">Library</h1>
+    <p class="subhead">Everything you’ve acquired, across projects. New plans reuse these files when that gives exactly the same pixels as a download.</p>
+    <div class="stats three">
+      <div class="stat"><div class="caption">Files</div><div class="v num" id="l-files">–</div></div>
+      <div class="stat"><div class="caption">On disk</div><div class="v num" id="l-size">–</div></div>
+      <div class="stat"><div class="caption">Projects</div><div class="v num" id="l-projects">–</div></div>
     </div>
-    <div class="card">
-      <p class="lbl">Everything you have downloaded, across projects. New asks reuse these files when that gives exactly the same pixels as a download.</p>
-      <div id="library-body"></div>
-    </div>
+    <div id="library-body"></div>
   </section>
 </main>
+
+<div class="sheet-scrim" id="sheet" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
+    <h2 class="headline" id="sheet-title"></h2>
+    <p class="footnote" id="sheet-text"></p>
+    <div class="sheet-actions"><button class="secondary" id="sheet-cancel">Cancel</button><button class="primary" id="sheet-ok">OK</button></div>
+  </div>
+</div>
 
 <script src="/static/vendor/leaflet/leaflet.js"></script>
 <script src="/static/app.js"></script>

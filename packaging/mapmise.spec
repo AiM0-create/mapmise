@@ -15,6 +15,17 @@ datas, binaries, hidden = [], [], []
 for pkg in ("rasterio", "pyproj", "pyogrio", "shapely", "onnxruntime", "tokenizers"):
     d, b, h = collect_all(pkg)
     datas += d; binaries += b; hidden += h
+try:  # the app's own window (pywebview; WebView2 on Windows, WKWebView on macOS)
+    import webview  # noqa: F401
+    d, b, h = collect_all("webview")
+    datas += d; binaries += b; hidden += h
+    if sys.platform == "win32":
+        for pkg in ("clr_loader", "pythonnet"):
+            d, b, h = collect_all(pkg)
+            datas += d; binaries += b; hidden += h
+        hidden += ["clr"]
+except ImportError:
+    pass  # without pywebview the app opens in the browser
 datas += collect_data_files("mapmise")  # registry YAML, GUI files, the AI model
 datas += collect_data_files("certifi")
 datas += copy_metadata("mapmise")  # so mapmise.__version__ is right
@@ -34,5 +45,5 @@ coll = COLLECT(app_exe, app_a.binaries, app_a.datas, cli_exe, cli_a.binaries, cl
 
 if sys.platform == "darwin":
     app = BUNDLE(coll, name="Mapmise.app", icon=ICON, bundle_identifier="io.github.aim0-create.mapmise",
-                 info_plist={"CFBundleShortVersionString": __import__("mapmise").__version__, "LSMinimumSystemVersion": "11.0",
+                 info_plist={"CFBundleName": "Mapmise", "CFBundleDisplayName": "Mapmise", "CFBundleShortVersionString": __import__("mapmise").__version__, "LSMinimumSystemVersion": "11.0",
                              "NSHighResolutionCapable": True})

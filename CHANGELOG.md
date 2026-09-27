@@ -2,6 +2,11 @@
 
 ## 0.1.0a1 — first public alpha
 
+- Redesigned interface following Apple's Human Interface principles: grouped lists, translucent toolbar and
+  action bar, system typography, plain-language verdicts and warnings, light and dark appearance, and support for
+  reduced motion, reduced transparency and increased contrast. New app icon.
+- The application opens in its own window (pywebview: WebView2 on Windows, WKWebView on macOS, WebKitGTK on
+  Linux), falling back to the browser where no system web view exists. `mapmise gui --browser` keeps the tab.
 - Renamed from the working name "geofetch" (already used by a bioinformatics package) to **mapmise**.
 - Desktop app for Windows, macOS (Apple silicon and Intel) and Linux: installers built and tested on each
   operating system by the release workflow; double-click to start, Quit button to stop, a second start reopens

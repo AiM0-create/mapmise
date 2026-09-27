@@ -207,16 +207,18 @@ def cmd_selftest(a: argparse.Namespace) -> int:
 
 
 def cmd_gui(a: argparse.Namespace) -> int:
-    from mapmise.gui.server import already_running, serve
-    if not a.port and (url := already_running()):
-        print(f"mapmise is already running at {url}; opening it")
+    from mapmise.gui.server import already_running, bring_forward, serve
+    if not a.port and not a.smoke_test and (rec := already_running()):
+        if rec.get("mode") == "window" and bring_forward(rec):
+            print("mapmise is already open; brought its window to the front")
+            return 0
+        print(f"mapmise is already running at {rec['url']}; opening it")
         if not a.no_browser:
             import webbrowser
-            webbrowser.open(url)
+            webbrowser.open(rec["url"])
         return 0
-    serve(port=a.port, open_browser=not a.no_browser, workspace=a.workspace)
-    return 0
-
+    return serve(port=a.port, open_browser=not a.no_browser, workspace=a.workspace,
+                 window=not a.browser and not a.no_browser, smoke=a.smoke_test)
 
 def cmd_library(a: argparse.Namespace) -> int:
     from mapmise.library import Library, scan
@@ -360,10 +362,12 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--theme"); s.add_argument("--check", nargs="*", metavar="ID", help="probe sources live (all if no ids given)")
     s.set_defaults(fn=cmd_sources)
 
-    s = sub.add_parser("gui", help="open the mapmise app in your browser (runs locally)")
+    s = sub.add_parser("gui", help="open the mapmise app (its own window, or your browser)")
     s.add_argument("--port", type=int, default=0, help="port on 127.0.0.1 (default: any free port)")
     s.add_argument("--workspace", help="folder for new projects (default: ~/mapmise-projects)")
-    s.add_argument("--no-browser", action="store_true", help="do not open a browser window")
+    s.add_argument("--browser", action="store_true", help="open in your web browser instead of the app's own window")
+    s.add_argument("--no-browser", action="store_true", help="only start the local server; open nothing")
+    s.add_argument("--smoke-test", action="store_true", help=argparse.SUPPRESS)
     s.set_defaults(fn=cmd_gui)
 
     s = sub.add_parser("library", help="everything you have downloaded, across projects")

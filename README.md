@@ -19,6 +19,8 @@ project — ready for QGIS, Python or any GIS.
 
 It runs entirely on your computer. There is no account, no hosted service and no API key.
 
+<p align="center"><img src="docs/images/plan.png" width="900" alt="The Plan view: the study area on a map, what was understood, a cloud warning for optical imagery, and each proposed dataset with its reason, verdict and size."></p>
+
 > *Mise en place* is the discipline of preparing and arranging every ingredient before cooking begins.
 > Mapmise applies it to spatial analysis.
 
@@ -76,7 +78,8 @@ Download the installer for your system from the
 | macOS, Intel | `Mapmise-<version>-macos-x64.dmg` | As above. |
 | Linux (64-bit) | `Mapmise-<version>-linux-x64.AppImage` | Mark the file as executable (`chmod +x`) and open it. A `.tar.gz` is also provided. |
 
-Mapmise opens in your default web browser and runs locally. Use **Quit** in the application to stop it.
+Mapmise opens in its own window and runs entirely on your computer; close the window to quit. On Linux the window
+requires the system web view (WebKitGTK); where it is not available, Mapmise opens in your default browser instead.
 
 **Unsigned builds.** Pre-release installers are not yet code-signed, and the operating system will ask for
 confirmation on first launch:
@@ -101,7 +104,7 @@ To verify an installation:
 For command-line use and scripting, with Python 3.12 or later:
 
 ```bash
-pip install mapmise-0.1.0a1-py3-none-any.whl      # from the release page
+pip install mapmise-0.1.0a1-py3-none-any.whl pywebview   # from the release page; pywebview adds the app window
 mapmise selftest
 ```
 
@@ -120,6 +123,8 @@ automatically on the `PATH`, in the standard Windows installation folders, or in
 ## Getting started
 
 ### In the application
+
+<p align="center"><img src="docs/images/ask-dark.png" width="49%" alt="The Ask view in dark mode."> <img src="docs/images/acquire.png" width="49%" alt="The Acquisition view with a completed download."></p>
 
 1. **Ask** — describe the analysis, the place and the period in plain language. A boundary file, dates or an event
    date may be supplied instead of, or in addition to, the text.
@@ -286,7 +291,7 @@ Every acquired file is indexed in a personal library across projects.
 | Command | Purpose |
 |---|---|
 | `mapmise ask "<question>"` | Understand, plan, and — after approval — acquire |
-| `mapmise gui` | Open the application in the browser |
+| `mapmise gui [--browser]` | Open the application in its own window, or in the browser |
 | `mapmise status <project>` | What the project holds, what is missing, and why |
 | `mapmise run <project>` | Resume or retry acquisition; completed files are skipped |
 | `mapmise open <project>` | Build mosaics and open all layers in QGIS |

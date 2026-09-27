@@ -80,3 +80,33 @@ def test_quit_stops_the_server(tmp_path, monkeypatch):
         assert json.loads(r.read())["ok"] is True
     t.join(timeout=5)
     assert not t.is_alive()
+
+
+def _post(url, body):
+    req = urllib.request.Request(url, data=json.dumps(body).encode(), method="POST",
+                                 headers={"X-Mapmise-Token": server.TOKEN, "Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=10) as r:
+        return json.loads(r.read())
+
+
+def test_page_says_whether_it_is_in_its_own_window(running, monkeypatch):
+    _, body = _get(running + "/")
+    assert b"GF_NATIVE = false" in body and b"__NATIVE__" not in body
+    monkeypatch.setattr(server, "NATIVE", True)
+    _, body = _get(running + "/")
+    assert b"GF_NATIVE = true" in body
+
+
+def test_source_names_for_the_interface(running):
+    _, body = _get(running + "/api/sources", server.TOKEN)
+    names = json.loads(body)
+    assert names["cop-dem-glo-30"].startswith("Copernicus DEM") and len(names) >= 20
+
+
+def test_recipe_is_saved_into_the_project(running, tmp_path):
+    r = _post(running + "/api/save-recipe", {"project": str(tmp_path / "demo")})
+    assert Path(r["path"]).exists() and Path(r["path"]).parent == (tmp_path / "demo").resolve()
+
+
+def test_show_without_a_window_reports_false(running):
+    assert _post(running + "/api/show", {})["ok"] is False

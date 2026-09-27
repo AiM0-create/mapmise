@@ -37,6 +37,8 @@ Changelog = "https://github.com/AiM0-create/mapmise/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+# the app in its own window instead of a browser tab (installers include it)
+app = ["pywebview>=5.3"]
 
 [project.scripts]
 mapmise = "mapmise.cli:run"
