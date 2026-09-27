@@ -376,6 +376,8 @@ def serve(port: int = 0, open_browser: bool = True, workspace: str | None = None
         except KeyboardInterrupt:
             pass
     finally:
+        if NATIVE:  # the server ran beside the window in a background thread: stop it before closing its socket
+            httpd.shutdown()
         httpd.server_close()
         if rec:
             rec.unlink(missing_ok=True)
@@ -391,12 +393,13 @@ def _smoke_check(window) -> None:
     import time
     try:
         window.events.loaded.wait(60)
-        for _ in range(60):
-            ok = window.evaluate_js("!!(window.MAPMISE_READY && document.querySelector('.segmented'))")
-            if ok:
+        ok = projects = False
+        for _ in range(60):  # the interface script runs, then its first API calls return
+            ok = bool(window.evaluate_js("!!(window.MAPMISE_READY && document.querySelector('.segmented'))"))
+            projects = bool(window.evaluate_js("window.MAPMISE_PROJECTS_LOADED === true"))
+            if ok and projects:
                 break
             time.sleep(0.5)
-        projects = window.evaluate_js("window.MAPMISE_PROJECTS_LOADED === true")
         print(f"smoke test: window loaded, app ready={ok}, API answered={projects}", flush=True)
         _SMOKE["code"] = 0 if ok and projects else 1
     except Exception as e:  # noqa: BLE001
