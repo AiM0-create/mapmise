@@ -41,7 +41,11 @@ def test_off_topic_is_not_matched():
 
 def test_evaluation_does_not_regress():
     """Held-out half of tests/fixtures/asks_eval.yaml: keyword rules + AI must understand at least 15 of 17."""
-    out = subprocess.run([sys.executable, "experiments/e5_ai_understanding.py"], cwd=ROOT, capture_output=True, text=True, check=True).stdout
+    import os
+    r = subprocess.run([sys.executable, "experiments/e5_ai_understanding.py"], cwd=ROOT, capture_output=True, encoding="utf-8",
+                       env={**os.environ, "PYTHONUTF8": "1"})
+    assert r.returncode == 0, r.stderr[-2000:]
+    out = r.stdout
     line = next(l for l in out.splitlines() if l.startswith("test:"))
     ok = int(line.split("keywords + AI ")[1].split("/")[0])
     assert ok >= 15, line
