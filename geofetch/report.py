@@ -56,7 +56,10 @@ def write_report(p: Project) -> Path:
             done_keys = {(t["item"], t["asset"]) for t in log if t["status"] == "ok"}
             tr = [t for t in log if t["status"] == "ok"]
             if tr:
-                L += ["", "| file | bytes | sha256 |", "|---|---|---|"] + [f"| `{t['path']}` | {t['bytes']:,} | `{t['sha256'][:16]}…` |" for t in tr]
+                L += ["", "| file | bytes | sha256 | obtained |", "|---|---|---|---|"] + [
+                    f"| `{t['path']}` | {t['bytes']:,} | `{t['sha256'][:16]}…` | "
+                    + (f"re-clipped from your library: `{Path(t['reused_from']).parent.parent.parent.parent.name}/…/{Path(t['reused_from']).name}` (same source grid) |" if t.get("reused_from") else "downloaded |")
+                    for t in tr]
             fails = list({(t["item"], t["asset"]): t for t in log if t["status"] != "ok" and (t["item"], t["asset"]) not in done_keys}.values())
             if fails:
                 L += ["", "Still missing (retry with `geofetch run`):"] + [f"- {t['item']} {t['asset']}: {t['error']}" for t in fails]

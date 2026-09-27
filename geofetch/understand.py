@@ -178,7 +178,7 @@ def geocode(query: str, pick: int = 0, allow_point: bool = True) -> Place:
     """Nominatim search → the `pick`-th result that has a polygon. A point-only place (a town) resolves to the
     administrative area containing it when allow_point, else raises _PointOnly. LookupError if nothing matches."""
     r = httpx.get("https://nominatim.openstreetmap.org/search",
-                  params={"q": query, "format": "jsonv2", "polygon_geojson": 1, "polygon_threshold": 0.0005, "limit": 8},
+                  params={"q": query, "format": "jsonv2", "polygon_geojson": 1, "polygon_threshold": 0.0, "limit": 8},
                   headers=UA, timeout=60)
     r.raise_for_status()
     results = r.json()
@@ -205,7 +205,7 @@ def _enclosing_area(query: str, point: dict, names: list[str]) -> Place:
         time.sleep(1.0)  # Nominatim usage policy: at most one request per second
         r = httpx.get("https://nominatim.openstreetmap.org/reverse",
                       params={"lat": point["lat"], "lon": point["lon"], "zoom": zoom, "format": "jsonv2",
-                              "polygon_geojson": 1, "polygon_threshold": 0.0005}, headers=UA, timeout=60)
+                              "polygon_geojson": 1, "polygon_threshold": 0.0}, headers=UA, timeout=60)
         r.raise_for_status()
         d = r.json()
         if d.get("geojson", {}).get("type") in ("Polygon", "MultiPolygon"):

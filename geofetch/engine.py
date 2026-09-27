@@ -80,6 +80,9 @@ def _build_plans(p: Project, resolutions: list[Resolution], start: date, end: da
     """Group resolved needs by (source, temporal class) and build one plan per group. Returns (plans, unmet)."""
     aoi = p.aoi()
     sizes = p.size_cache()
+    from geofetch.library import Library
+    _lib = Library()
+    held = lambda sid: _lib.items(sid, p.meta.project_epsg)  # noqa: E731 — prefer what the user already has, on ties
     groups: dict[tuple[str, str], list[Need]] = {}
     unmet: list[tuple[Need, str]] = []
     for r in resolutions:
@@ -97,7 +100,7 @@ def _build_plans(p: Project, resolutions: list[Resolution], start: date, end: da
         try:
             if s.shape == "series" and s.driver == "stac":
                 plan = scene_plan(aoi, s, needs, _assets_for(s, needs), start, end, p.cache_dir, sizes, event, pre_days, post_days,
-                                  cloud_max=a.cloud_max, clear_target=a.clear_target, mode=a.mode)
+                                  cloud_max=a.cloud_max, clear_target=a.clear_target, mode=a.mode, prefer=held(sid))
             elif s.shape == "series" and s.driver == "http":
                 plan = file_series_plan(aoi, s, needs, list(s.access["assets"]), start, end, sizes)
             elif s.shape == "layer" and s.kind == "raster":
@@ -178,6 +181,7 @@ def _build_plans(p: Project, resolutions: list[Resolution], start: date, end: da
             planned.add(alt.id)
             break
     p.save_size_cache(sizes)
+    _lib.close()
     return plans, unmet
 
 
@@ -350,11 +354,18 @@ def prepare(text: str, a, log: Callable[[str], None] = print) -> dict:
     if any(n.temporal == "pair" for n in needs):
         event, pre_days, post_days, event_note = _event_for(a, ask, period, p, start, end, log)
     plans, unmet = _build_plans(p, resolutions, start, end, event, pre_days, post_days, a)
+    from geofetch.library import Library
+    from geofetch.run import library_hits
+    lib = Library()
     for pl in plans:
         n = pl["estimate"]["n_assets"]
-        missing = len(gaps(p, pl)) if n else 0
-        pl["estimate"]["present"] = n - missing
-        pl["estimate"]["to_fetch_bytes"] = int(pl["estimate"]["windowed_bytes"] * missing / n) if n else 0
+        missing = {(g["item"], g["asset"]) for g in gaps(p, pl)} if n else set()
+        from_library = library_hits(p, pl, lib) & missing if missing else set()
+        to_download = len(missing) - len(from_library)
+        pl["estimate"]["present"] = n - len(missing)
+        pl["estimate"]["from_library"] = len(from_library)
+        pl["estimate"]["to_fetch_bytes"] = int(pl["estimate"]["windowed_bytes"] * to_download / n) if n else 0
+    lib.close()
     req_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     unmet_d = [{"need": n.key, "theme": n.theme, "temporal": n.temporal, "why": w} for n, w in unmet]
     p.save_request(req_id, {"id": req_id, "ask": text, "rules": ask.matched_rules, "period": [start.isoformat(), end.isoformat()],
@@ -383,14 +394,14 @@ def run(project: Project, req_id: str, plan_ids: list[str] | None = None, thread
     req = reqs[req_id]
     plans = [project.load_plan(pid) for pid in req["plans"] if plan_ids is None or pid in plan_ids]
     todo = [pl for pl in plans if gaps(project, pl)]
-    totals = {"fetched": 0, "skipped": 0, "failed": 0}
+    totals = {"fetched": 0, "skipped": 0, "failed": 0, "reused": 0}
     for pl in todo:
         pl["status"] = "approved"
         project.save_plan(pl["id"], pl)
         cb = (lambda msg, pid=pl["id"], src=pl["source"]: progress({"plan": pid, "source": src, "message": msg})) if progress else (lambda msg: None)
         r = execute(project, pl, threads, progress=cb)
         for k in totals:
-            totals[k] += r[k]
+            totals[k] += r.get(k, 0)
         if progress:
             progress({"plan": pl["id"], "source": pl["source"], "message": "done", "result": r, "status": pl["status"]})
     req["status"] = "complete" if totals["failed"] == 0 else "partial"
@@ -414,7 +425,8 @@ def status(project: Project) -> dict:
             rows.append({"plan": pid, "source": pl["source"], "needs": [f"{x['theme']}/{x['temporal']}" for x in pl["needs"]],
                          "present": n - len(g), "total": n, "state": "skipped" if skipped else ("complete" if not g else ("missing" if len(g) == n else "partial")),
                          "verdicts": _verdict_summary(pl["windows"]), "reason": pl["windows"][0]["verdict_text"] if skipped else None})
-        reqs.append({"id": req["id"], "ask": req["ask"], "status": req["status"], "plans": rows, "unmet": req.get("unmet", [])})
+        reqs.append({"id": req["id"], "ask": req["ask"], "status": req["status"], "plans": rows, "unmet": req.get("unmet", []),
+                     "period": req.get("period"), "event": req.get("event")})
     size = sum(f.stat().st_size for f in (project.root / "data").rglob("*") if f.is_file()) if (project.root / "data").exists() else 0
     return {"project": str(project.root.resolve()), "name": project.meta.name, "area_km2": project.meta.aoi_area_km2,
             "start": project.meta.start, "end": project.meta.end, "items": len(items), "bytes_on_disk": size, "requests": reqs}

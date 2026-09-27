@@ -2,6 +2,12 @@
 
 ## 0.1.0a1 — first public alpha
 
+- Personal library: every acquired file indexed across projects (SQLite, standard library). Reuse by local
+  re-clip when it is exactly equivalent to a download (verified byte-identical); plans show "In your library";
+  equally good scenes already held are preferred; `geofetch library` / Library screen; `--scan` for older projects.
+- Recipes: `geofetch recipe export|run` — a project as one small file, rebuilt with checksum comparison.
+- `geofetch refresh` extends the latest ask to today. Place boundaries are now fetched at full resolution so a
+  taluk lies exactly inside its district.
 - Built-in AI: a 23 MB sentence-embedding model (all-MiniLM-L6-v2, Apache-2.0) shipped in the package, offline,
   matches questions by meaning to ask rules (each rule now has example phrasings). Held-out evaluation:
   11/17 → 16/17 understood. Reasons shown in the plan; `--no-ai` to disable.

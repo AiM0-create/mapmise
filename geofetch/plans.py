@@ -75,17 +75,17 @@ def _windows_for(need_temporal: str, start: date, end: date, event: date | None,
 
 def scene_plan(aoi: AOI, source: Source, needs: list[Need], assets: list[str], start: date, end: date, cache_dir: Path,
                size_cache: dict[str, int], event: date | None = None, pre_days: int = 30, post_days: int = 30,
-               cloud_max: float = 20.0, clear_target: float = 0.8, mode: str = "single") -> dict:
+               cloud_max: float = 20.0, clear_target: float = 0.8, mode: str = "single", prefer: set[str] | None = None) -> dict:
     temporal = "pair" if any(n.temporal == "pair" for n in needs) else "series"
     yearly = temporal != "pair" and (source.yearly or (end - start).days > LONG_PERIOD_DAYS)
     windows = _windows_for(temporal, start, end, event, pre_days, post_days, yearly=yearly)
     q = stac_driver.build_query(source, aoi.bbox, windows[0].start.isoformat(), windows[-1].end.isoformat(), assets)
     items, record = stac_driver.search(source, q, cache_dir)
     if source.planner == "optical":
-        sp: ScenePlan = plan_optical(aoi, items, windows, assets, cloud_max=cloud_max, clear_target=clear_target)
+        sp: ScenePlan = plan_optical(aoi, items, windows, assets, cloud_max=cloud_max, clear_target=clear_target, prefer=prefer)
     elif source.planner == "sar":
         ref = {"pre": event, "post": event} if event else None
-        sp = plan_sar(aoi, items, windows, assets, same_orbit=(temporal == "pair"), reference=ref)
+        sp = plan_sar(aoi, items, windows, assets, same_orbit=(temporal == "pair"), reference=ref, prefer=prefer)
     else:
         sp = plan_products(aoi, items, windows, assets, one_per_window=yearly and not source.yearly)
     by_id = {it.id: it for it in items}

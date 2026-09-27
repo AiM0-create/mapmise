@@ -22,7 +22,8 @@ from geofetch.planner.optical import Candidate, Plan, Selection, TileInfo, Windo
 
 
 def plan_sar(aoi: AOI, items: list[Item], windows: list[Window], bands: list[str], same_orbit: bool = True,
-             min_coverage: float = 0.9, reference: dict[str, date] | None = None) -> Plan:
+             min_coverage: float = 0.9, reference: dict[str, date] | None = None, prefer: set[str] | None = None) -> Plan:
+    """prefer: item ids already in the user's library — used only to break ties between equally good orbits."""
     aoi_ea = to_equal_area(aoi.geometry)
     aoi_area = aoi_ea.area
     items = [it for it in items if it.geometry.intersects(aoi.geometry) and it.relative_orbit is not None]
@@ -49,9 +50,10 @@ def plan_sar(aoi: AOI, items: list[Item], windows: list[Window], bands: list[str
         for o in orbits:
             per_w = [best_pass(o, w) for w in windows]
             if all(per_w):
-                scored.append((min(cov[k] for k in per_w), o))
+                held = sum(1 for k in per_w for it in passes[k] if prefer and it.id in prefer)
+                scored.append((round(min(cov[k] for k in per_w), 3), held, o))
         if scored:
-            chosen_orbit = max(scored)[1]
+            chosen_orbit = max(scored)[-1]
 
     tiles = [TileInfo(f"orbit-{o}-{s}", 0.0, aoi_area / 1e6, aoi_area / 1e6, 1.0, "footprint-union") for o, s in orbits]
     selections, reports = [], []

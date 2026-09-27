@@ -77,6 +77,10 @@ class Catalog:
                 extra["geofetch:transfer_seconds"] = round(a["seconds"], 1)
             if a.get("shape"):
                 extra["proj:shape"] = a["shape"]
+            if a.get("native_grid") is not None:
+                extra["geofetch:native_grid"] = bool(a["native_grid"])
+            if a.get("reused_from"):
+                extra["geofetch:reused_from"] = a["reused_from"]
             item.add_asset(key, pystac.Asset(href=self._rel(Path(a["path"])), media_type=a["media_type"], roles=["data"], extra_fields=extra))
         item.stac_extensions = ["https://stac-extensions.github.io/file/v2.1.0/schema.json",
                                 "https://stac-extensions.github.io/projection/v1.1.0/schema.json"]

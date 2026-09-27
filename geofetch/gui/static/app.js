@@ -26,7 +26,7 @@ function show(screen) {
   document.querySelectorAll("#steps button").forEach((b) => b.classList.toggle("on", b.dataset.screen === screen));
   Object.values(state.maps).forEach((m) => setTimeout(() => m.invalidateSize(), 50));
 }
-document.querySelectorAll("#steps button").forEach((b) => (b.onclick = () => show(b.dataset.screen)));
+document.querySelectorAll("#steps button").forEach((b) => (b.onclick = () => { show(b.dataset.screen); if (b.dataset.screen === "library") loadLibrary(); }));
 
 function drawAoi(id, geojson) {
   if (!state.maps[id]) {
@@ -100,6 +100,7 @@ function renderPlan() {
     ${r.ai !== "on" ? `<p class="small muted" style="margin:4px 0 0">Built-in AI ${esc(r.ai)} — keyword rules only.</p>` : ""}
     ${r.event_note ? `<p class="small" style="margin:8px 0 0;color:var(--warn)">${esc(r.event_note)}</p>` : ""}
     ${r.notes.length ? `<p class="small muted" style="margin:8px 0 0">${r.notes.map(esc).join("<br>")}</p>` : ""}
+    ${r.library_here.length ? `<p class="small" style="margin:8px 0 0">Already in your library over this area:</p>${r.library_here.map((g) => `<p class="small muted" style="margin:0">· ${esc(g.source)} — ${g.files} files${g.dates.length ? ` (${esc(g.dates.join(" → "))})` : ""} in ${esc(g.project)}</p>`).join("")}` : ""}
     <p class="muted small" style="margin:8px 0 0">Project: ${esc(r.project)}</p>`;
   drawAoi("map", r.aoi);
 
@@ -108,13 +109,14 @@ function renderPlan() {
     const tag = p.fallback_for ? '<span class="tag">added: cloud fallback</span>' : p.complement_for ? '<span class="tag">added: fills missing years</span>' : "";
     const opts = [p.source, ...p.alternatives].map((s) => `<option ${s === p.source ? "selected" : ""}>${esc(s)}</option>`).join("");
     const have = p.files && p.present === p.files;
-    const sz = have ? "have" : p.size_known ? (p.unknown_sizes ? "≥" : "") + size(p.bytes) : "live";
+    const lib = !have && p.files && p.present + p.from_library === p.files;
+    const sz = have ? "have" : lib ? "0 MB" : p.size_known ? (p.unknown_sizes ? "≥" : "") + size(p.bytes) : "live";
     const skipped = p.worst === "skipped";
     return `<div class="prow" data-i="${i}">
       <input type="checkbox" ${skipped ? "disabled" : "checked"} aria-label="Include ${esc(p.source)}">
       <span class="need" title="${esc(p.needs.map((n) => n.why).join(" · "))}">${needs}<small>${esc(p.needs[0]?.priority || "")} ${tag}</small></span>
       <select data-need="${esc(p.need_key)}" ${p.alternatives.length ? "" : "disabled"} aria-label="Source">${opts}</select>
-      <span>${p.present ? `${p.present}/${p.files}` : p.files}</span><span>${sz}</span><span>${have ? badge("ok", "Already have") : badge(p.worst)}</span>
+      <span>${p.present ? `${p.present}/${p.files}` : p.files}</span><span>${sz}</span><span>${have ? badge("ok", "Already have") : lib ? badge("ok", "In your library") : badge(p.worst)}</span>
       <div class="detail" hidden>
         <strong>${esc(p.source_name)}</strong> · ${esc(p.licence)}${p.resolution_m ? ` · ${p.resolution_m} m` : ""}
         <ul>${p.needs.map((n) => `<li>${esc(n.why)}</li>`).join("")}${p.explanations.slice(0, 2).map((x) => `<li>${esc(x)}</li>`).join("")}</ul>
@@ -143,7 +145,9 @@ function total() {
   const ps = checkedPlans();
   $("total").textContent = size(ps.reduce((s, p) => s + (p.size_known ? p.bytes : 0), 0));
   const have = ps.reduce((s, p) => s + p.present, 0);
-  $("total-sub").textContent = `· ${ps.reduce((s, p) => s + p.files - p.present, 0)} files to download from ${ps.length} sources` + (have ? ` · ${have} already in the project` : "") + " · only your area is downloaded";
+  const fromLib = ps.reduce((s, p) => s + (p.from_library || 0), 0);
+  $("total-sub").textContent = `· ${ps.reduce((s, p) => s + p.files - p.present - (p.from_library || 0), 0)} files to download from ${ps.length} sources`
+    + (have ? ` · ${have} already in the project` : "") + (fromLib ? ` · ${fromLib} from your library` : "") + " · only your area is downloaded";
   $("fetch-btn").disabled = ps.length === 0;
 }
 
@@ -173,7 +177,7 @@ async function poll() {
   if (v.done) {
     const r = v.result;
     $("fetch-note").textContent = v.error ? `Stopped: ${v.error}` :
-      `Finished: ${r.fetched} files fetched, ${r.skipped} already present, ${r.failed} failed${r.failed ? " — open the project and fetch again to retry" : ""}.`;
+      `Finished: ${r.fetched} files fetched${r.reused ? ` (${r.reused} from your library, no download)` : ""}, ${r.skipped} already present, ${r.failed} failed${r.failed ? " — open the project and fetch again to retry" : ""}.`;
     state.job = null;
     return;
   }
@@ -222,6 +226,38 @@ $("resume").onclick = async () => {
   const j = await api("/api/run", { project: state.project, request_id: req.id, plan_ids: ids });
   state.job = j.job; show("fetch"); poll();
 };
+$("share-recipe").onclick = async () => {
+  try {
+    const res = await fetch(`/api/recipe?project=${encodeURIComponent(state.project)}`, { headers: { "X-Geofetch-Token": window.GF_TOKEN } });
+    if (!res.ok) throw new Error("Could not create the recipe.");
+    const name = (res.headers.get("Content-Disposition") || "").match(/filename="([^"]+)"/)?.[1] || "project.recipe.json";
+    const url = URL.createObjectURL(await res.blob());
+    const a = document.createElement("a"); a.href = url; a.download = name; a.click(); URL.revokeObjectURL(url);
+    $("project-note").textContent = `Recipe saved as ${name} (also kept in the project folder). Share it; anyone can rebuild this dataset with: geofetch recipe run ${name} <folder>`;
+  } catch (e) { $("project-note").textContent = e.message; }
+};
+$("refresh").onclick = async () => {
+  const req = state.lastStatus?.requests[state.lastStatus.requests.length - 1];
+  if (!req) return;
+  const today = new Date().toISOString().slice(0, 10);
+  if (req.period && req.period[1] >= today) { $("project-note").textContent = `The latest ask already runs to ${req.period[1]}.`; return; }
+  $("ask-text").value = req.ask; $("opt-project").value = state.project;
+  $("opt-start").value = req.period ? req.period[0] : ""; $("opt-end").value = today; $("opt-event").value = req.event || "";
+  $("project-note").textContent = "Re-planning up to today — only new data will be fetched…";
+  state.use = {}; state.skip = []; await plan();
+};
+
+async function loadLibrary() {
+  try {
+    const d = await api("/api/library");
+    $("l-files").textContent = d.files; $("l-size").textContent = size(d.bytes); $("l-projects").textContent = d.by_project.length;
+    $("library-body").innerHTML = !d.files ? "<p class='muted small'>Empty — files are added as you fetch. Index older projects with: geofetch library --scan ~/geofetch-projects</p>" :
+      d.by_source.map((r) => `<div class="srow"><span></span><span>${esc(r.source)} <span class="muted small">in ${r.projects} project(s)</span></span><span class="muted small">${r.files} files · ${size(r.bytes)}</span></div>`).join("")
+      + `<p class="lbl" style="margin-top:14px">Projects</p>` + d.by_project.map((p) => `<div class="recent-item" data-path="${esc(p.project)}"><span>${esc(p.project.split("/").pop())}${p.exists ? "" : " <span class='muted small'>(folder missing)</span>"}</span><span class="muted small">${p.files} files · ${size(p.bytes)}</span></div>`).join("");
+    document.querySelectorAll("#library-body .recent-item").forEach((el) => (el.onclick = () => openProject(el.dataset.path)));
+  } catch (e) { $("library-body").textContent = e.message; }
+}
+
 $("ask-here").onclick = () => {
   $("opt-project").value = state.project;
   $("ask-text").value = ""; show("ask"); $("ask-text").focus();

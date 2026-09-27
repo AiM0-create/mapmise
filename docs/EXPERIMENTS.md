@@ -109,3 +109,16 @@ Thresholds chosen on the tune half: minimum similarity 0.325, margin 0.06, add-t
 The evaluation also found two keyword bugs, fixed: `rain` matched inside "t**rain**" (now word-bounded), and bare "settlement" sent connectivity questions to the urban rule.
 
 Found while testing the full ask: place names that exist only as points in OpenStreetMap (towns) now resolve to the enclosing administrative area (Hiriyur → Hiriyuru taluk, stated in the plan), and place candidates after a preposition ("near Hiriyur") are tried before a capitalised first word ("Farmers …"), which previously geocoded to a hamlet in Ohio.
+
+## E3 — Reproducibility, and E6 — reuse from the personal library (2026-09-27)
+
+**E3.** Project A (30 km box, Sentinel-2 June 2026 + WorldCover) exported as an 8 kB recipe and rebuilt from the internet into an empty folder with an empty library: **3 of 3 files byte-identical** (same machine, GDAL 3.12.4). Cross-machine and cross-GDAL-version runs are not yet tested; the recipe records both versions so differences can be explained.
+
+**E6.** Reuse is allowed only when a local re-clip must equal a download: same item and band, file on the source's native grid, same projection, file unchanged, and full coverage of the new need.
+
+| test | result |
+|---|---|
+| 10 km box inside a 30 km box, June 2026 Sentinel-2: library vs fresh download | red and NIR **byte-identical**; 6 s vs a download |
+| Hiriyur taluk inside Chitradurga district (full-resolution OSM boundaries) | 0 MB transferred, 6 s; district took 1 min 51 s for 0.36 GB |
+| Same taluk inside a district geocoded with simplified boundaries | not reused: 0.009 km² of the taluk fell outside the simplified district. Fixed by requesting full-resolution boundaries (taluk outside district: 0.0 m²) — the exactness check was kept, not loosened |
+| Radar pair for the taluk | not reused, correctly: orbit 165 covers 92 % of the taluk, better than the district's orbit 63. Library items break ties only; they never override quality |

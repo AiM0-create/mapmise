@@ -96,6 +96,16 @@ The model only chooses among the ask rules that already exist, and always says w
 
 Model: sentence-transformers/all-MiniLM-L6-v2 (Apache-2.0), 8-bit ONNX, run with onnxruntime.
 
+## Your library
+
+Every file geofetch downloads is indexed in one personal library (a small database file in your home folder). Three things follow:
+
+- **Reuse instead of download.** Ask about Hiriyur taluk after you already fetched Chitradurga district, and the plan says *In your library* — the files are clipped from what you have, in seconds, with 0 MB transferred. geofetch reuses a file only when that gives exactly the same pixels as a fresh download (same scene, same band, still on the source's own grid, same projection, fully covering the new area); otherwise it downloads. When two scenes are equally good, it prefers the one you already have; it never picks a worse scene for that.
+- **What do I already have here?** `geofetch library --place "Hiriyur"` or the Library screen in the app.
+- **Share a recipe, not gigabytes.** `geofetch recipe export <project>` writes one small file (area, questions, the exact scenes and URLs chosen, checksums). `geofetch recipe run recipe.json <folder>` rebuilds the dataset and reports which files are byte-identical. Live sources such as OpenStreetMap are reported as changed by design.
+
+`geofetch refresh <project>` extends the latest question to today and fetches only what is new. Index projects made before the library existed with `geofetch library --scan ~/geofetch-projects`.
+
 ## Use from the command line
 
 ```bash

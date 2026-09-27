@@ -30,6 +30,7 @@ from geofetch.prepare import build_vrts, open_in_qgis, vector_files
 from geofetch.project import Project
 from geofetch.registry import load_sources
 from geofetch.run import gaps
+from geofetch.library import Library
 
 STATIC = Path(__file__).parent / "static"
 TOKEN = secrets.token_urlsafe(24)
@@ -60,7 +61,7 @@ def _plan_row(pl: dict, alternatives: dict[str, list[str]]) -> dict:
         "licence": s.license if s else "", "resolution_m": s.resolution_m if s else None,
         "needs": [{"theme": n["theme"], "temporal": n["temporal"], "priority": n["priority"], "why": n["why"]} for n in pl["needs"]],
         "need_key": key, "alternatives": [a for a in alternatives.get(key, []) if a != pl["source"]],
-        "files": pl["estimate"]["n_assets"], "present": pl["estimate"].get("present", 0),
+        "files": pl["estimate"]["n_assets"], "present": pl["estimate"].get("present", 0), "from_library": pl["estimate"].get("from_library", 0),
         "bytes": pl["estimate"].get("to_fetch_bytes", pl["estimate"]["windowed_bytes"]), "size_known": pl["estimate"]["known"],
         "unknown_sizes": pl["estimate"].get("unknown", 0), "worst": worst,
         "windows": [{"label": w["label"], "verdict": w["verdict"], "text": w["verdict_text"]} for w in pl["windows"]],
@@ -83,6 +84,24 @@ def _projects() -> list[dict]:
                 out.append({"path": str(d), "name": p.meta.name, "area_km2": p.meta.aoi_area_km2, "start": p.meta.start, "end": p.meta.end,
                             "last_ask": reqs[-1]["ask"] if reqs else p.meta.objective, "requests": len(reqs)})
     return out
+
+
+def _library_here(project: Project) -> list[dict]:
+    """What other projects already hold over this project's area, grouped by source."""
+    lib = Library()
+    try:
+        groups: dict[tuple[str, str], dict] = {}
+        for h in lib.over(project.aoi().geometry):
+            if h.project == project.root.resolve():
+                continue
+            g = groups.setdefault((h.source, str(h.project)), {"source": h.source, "project": h.project.name, "files": 0, "bytes": 0, "dates": set()})
+            g["files"] += 1
+            g["bytes"] += h.bytes
+            if h.date:
+                g["dates"].add(h.date)
+        return [{**g, "dates": sorted(g["dates"])[:1] + sorted(g["dates"])[-1:] if g["dates"] else []} for g in groups.values()]
+    finally:
+        lib.close()
 
 
 def _job_view(job: dict) -> dict:
@@ -121,7 +140,7 @@ def _prepare(body: dict) -> dict:
     r = engine.prepare(body["text"], opts, log=notes.append)
     project = Project.load(Path(r["project"]))
     return {**{k: v for k, v in r.items() if k != "plans"}, "notes": notes, "aoi": _aoi_geojson(project),
-            "plans": [_plan_row(pl, r["alternatives"]) for pl in r["plans"]]}
+            "plans": [_plan_row(pl, r["alternatives"]) for pl in r["plans"]], "library_here": _library_here(project)}
 
 
 def _start_job(body: dict) -> dict:
@@ -193,6 +212,24 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({**engine.status(p), "aoi": _aoi_geojson(p)})
             if u.path == "/api/job":
                 return self._json(_job_view(_jobs[q["id"]]))
+            if u.path == "/api/library":
+                lib = Library()
+                try:
+                    return self._json(lib.summary())
+                finally:
+                    lib.close()
+            if u.path == "/api/recipe":
+                from geofetch import recipe
+                p = Project.load(Path(q["project"]))
+                out = recipe.write(p)
+                body = out.read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Disposition", f'attachment; filename="{out.name}"')
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return None
             if u.path == "/api/report":
                 p = Project.load(Path(q["project"]))
                 f = p.root / "REPORT.md"

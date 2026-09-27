@@ -10,6 +10,11 @@
     geofetch report <dir>                            write REPORT.md — the human-readable acquisition record
     geofetch sources [--theme t]                     list the registry
     geofetch gui [--workspace DIR]                   the app: ask → plan → fetch → project, in your browser
+    geofetch library [--here DIR|--place NAME|--aoi FILE] [--scan DIR...] [--forget-missing]
+                                                     everything you have downloaded, across projects
+    geofetch recipe export <dir> [-o FILE]           the project as one small shareable file
+    geofetch recipe run <recipe.json> <new-dir>      rebuild the same dataset and compare checksums
+    geofetch refresh <dir>                           extend the latest ask to today; fetch only what is new
 """
 
 from __future__ import annotations
@@ -58,6 +63,7 @@ def print_request(plans: list[dict], unmet: list[dict], verbose: bool = True) ->
         needs = ", ".join(f"{n['theme']}/{n['temporal']}" for n in pl["needs"])
         e = pl["estimate"]
         est = ("have" if e["n_assets"] and e.get("present") == e["n_assets"] else
+               "library" if e["n_assets"] and e.get("present", 0) + e.get("from_library", 0) == e["n_assets"] else
                ("≥" if e.get("unknown") else "") + _gb(e.get("to_fetch_bytes", e["windowed_bytes"])) if e["known"] else "live")
         tag = " ↳fallback" if pl.get("fallback_for") else " ↳complement" if pl.get("complement_for") else ""
         print(f"{needs[:28]:28} {(pl['source'] + tag)[:30]:30} {pl['estimate']['n_assets']:5d} {est:>8}  {_verdict_summary(pl['windows'])}")
@@ -112,7 +118,8 @@ def _run_plans(p: Project, req_id: str, plans: list[dict], yes: bool, threads: i
     def show(ev: dict) -> None:
         if ev["message"] == "done":
             r = ev["result"]
-            print(f"  {ev['source']}: fetched {r['fetched']}, skipped {r['skipped']}, failed {r['failed']} → {ev['status']}")
+            print(f"  {ev['source']}: fetched {r['fetched']}" + (f" ({r['reused']} from your library)" if r.get("reused") else "")
+                  + f", skipped {r['skipped']}, failed {r['failed']} → {ev['status']}")
         else:
             print(ev["message"])
     t = engine.run(p, req_id, [pl["id"] for pl in todo], threads, show)
@@ -199,6 +206,90 @@ def cmd_gui(a: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_library(a: argparse.Namespace) -> int:
+    from geofetch.library import Library, scan
+    lib = Library()
+    if a.forget_missing:
+        print(f"removed {lib.forget_missing()} entries whose files no longer exist")
+    for d in a.scan or []:
+        roots = [Path(d)] if (Path(d) / "project.json").exists() else [x for x in Path(d).iterdir() if (x / "project.json").exists()]
+        for r in roots:
+            print(f"indexed {scan(r, lib):4d} files from {r}")
+    geom = None
+    if a.here:
+        geom = Project.load(Path(a.here)).aoi().geometry
+    elif a.aoi:
+        from geofetch.aoi import load_aoi
+        geom = load_aoi(Path(a.aoi)).geometry
+    elif a.place:
+        from geofetch.understand import geocode
+        geom = geocode(a.place).geometry
+    if geom is not None:
+        held = lib.over(geom)
+        by: dict[tuple[str, str], list] = {}
+        for h in held:
+            by.setdefault((h.source, h.project.name), []).append(h)
+        print(f"{len(held)} files in your library overlap this area")
+        for (src, proj), hs in sorted(by.items()):
+            dates = sorted({h.date for h in hs if h.date})
+            span = f"{dates[0]} … {dates[-1]}" if len(dates) > 1 else (dates[0] if dates else "static")
+            print(f"  {src:28} {len(hs):4d} files  {_gb(sum(h.bytes for h in hs)):>8}  {span:24} in {proj}")
+        return 0
+    st = lib.summary()
+    print(f"library {st['library']}\n{st['files']} files, {_gb(st['bytes'])} across {len(st['by_project'])} projects\n")
+    for r in st["by_source"]:
+        print(f"  {r['source']:28} {r['files']:5d} files {_gb(r['bytes']):>9}  in {r['projects']} project(s)")
+    gone = [r for r in st["by_project"] if not r["exists"]]
+    if gone:
+        print(f"\n{len(gone)} project folder(s) no longer exist; run `geofetch library --forget-missing`")
+    if not st["files"]:
+        print("empty — files are added as you fetch; index older projects with `geofetch library --scan ~/geofetch-projects`")
+    return 0
+
+
+def cmd_recipe(a: argparse.Namespace) -> int:
+    from geofetch import recipe
+    if a.action == "export":
+        out = recipe.write(Project.load(Path(a.path)), Path(a.output) if a.output else None)
+        size = out.stat().st_size
+        print(f"recipe written: {out} ({size / 1e3:.0f} kB) — share it; `geofetch recipe run {out.name} <folder>` rebuilds the dataset")
+        return 0
+    if not a.dest:
+        raise SystemExit("recipe run needs a destination folder")
+    r = recipe.run(Path(a.path), Path(a.dest), threads=a.threads,
+                   progress=lambda ev: print(ev["message"] if ev["message"] != "done" else f"  {ev['source']}: done"))
+    print(f"\nrebuilt in {r['project']} (recipe made with geofetch {r['made_with']['geofetch']}, GDAL {r['made_with']['gdal']})")
+    print(f"  identical: {len(r['identical'])} files")
+    if r["live"]:
+        print(f"  changed (live sources such as OpenStreetMap, expected): {len(r['live'])}")
+    if r["different"]:
+        print(f"  different: {len(r['different'])} — e.g. {r['different'][0]} (different GDAL version, or the provider reprocessed)")
+    if r["missing"]:
+        print(f"  missing: {len(r['missing'])} — e.g. {r['missing'][0]}; retry with `geofetch run {r['project']}`")
+    return 0 if not (r["different"] or r["missing"]) else 2
+
+
+def cmd_refresh(a: argparse.Namespace) -> int:
+    from geofetch import engine
+    p = Project.load(Path(a.dir))
+    reqs = p.list_requests()
+    if not reqs:
+        raise SystemExit("no requests yet; run `geofetch ask`")
+    last = reqs[-1]
+    start, end = last.get("period", [p.meta.start, p.meta.end])
+    today = date.today().isoformat()
+    if end >= today:
+        print(f"the latest ask already runs to {end}; nothing to refresh")
+        return 0
+    opts = engine.Options(project=str(p.root), start=start, end=today, event=last.get("event"))
+    r = engine.prepare(last["ask"], opts)
+    print(f"refreshed “{last['ask']}”: {start} → {today} (was → {end})")
+    print_request(r["plans"], r["unmet"], verbose=False)
+    if a.dry_run:
+        return 0
+    return _run_plans(p, r["request_id"], r["plans"], a.yes, a.threads)
+
+
 def cmd_rules(a: argparse.Namespace) -> int:
     from geofetch.registry import load_ask_rules
     for r in load_ask_rules():
@@ -256,6 +347,24 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--workspace", help="folder for new projects (default: ~/geofetch-projects)")
     s.add_argument("--no-browser", action="store_true", help="do not open a browser window")
     s.set_defaults(fn=cmd_gui)
+
+    s = sub.add_parser("library", help="everything you have downloaded, across projects")
+    s.add_argument("--here", metavar="DIR", help="what you already have over this project's area")
+    s.add_argument("--place", help="what you already have over a named place"); s.add_argument("--aoi", help="… or over a boundary file")
+    s.add_argument("--scan", nargs="+", metavar="DIR", help="index existing project folders (or a folder of projects)")
+    s.add_argument("--forget-missing", action="store_true", help="drop entries whose files were deleted")
+    s.set_defaults(fn=cmd_library)
+
+    s = sub.add_parser("recipe", help="export a project as a shareable recipe, or rebuild one")
+    s.add_argument("action", choices=["export", "run"]); s.add_argument("path", help="project folder (export) or recipe file (run)")
+    s.add_argument("dest", nargs="?", help="new project folder (run)"); s.add_argument("-o", "--output")
+    s.add_argument("--threads", type=int, default=12)
+    s.set_defaults(fn=cmd_recipe)
+
+    s = sub.add_parser("refresh", help="extend the latest ask to today and fetch only what is new")
+    s.add_argument("dir"); s.add_argument("--dry-run", action="store_true"); s.add_argument("--yes", "-y", action="store_true")
+    s.add_argument("--threads", type=int, default=12)
+    s.set_defaults(fn=cmd_refresh)
 
     s = sub.add_parser("rules", help="list the ask vocabulary (which words map to which data needs)")
     s.set_defaults(fn=cmd_rules)

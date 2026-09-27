@@ -16,6 +16,7 @@
     <button data-screen="plan">2 · Plan</button>
     <button data-screen="fetch">3 · Fetching</button>
     <button data-screen="project">4 · Project</button>
+    <button data-screen="library">Library</button>
   </nav>
 </header>
 
@@ -108,10 +109,24 @@
       <button id="show-report">Report</button>
       <button id="open-folder">Show folder</button>
       <button id="resume">Fetch missing</button>
+      <button id="refresh">Refresh to today</button>
+      <button id="share-recipe">Share recipe</button>
       <button id="ask-here">Ask something else here</button>
     </div>
     <p id="project-note" class="muted small"></p>
     <div class="card" id="report-card" hidden><div id="report" class="report"></div></div>
+  </section>
+  <!-- Library -->
+  <section class="screen" data-screen="library" hidden>
+    <div class="metrics">
+      <div class="metric"><p class="lbl">Files</p><p class="big" id="l-files">–</p></div>
+      <div class="metric"><p class="lbl">On disk</p><p class="big" id="l-size">–</p></div>
+      <div class="metric"><p class="lbl">Projects</p><p class="big" id="l-projects">–</p></div>
+    </div>
+    <div class="card">
+      <p class="lbl">Everything you have downloaded, across projects. New asks reuse these files when that gives exactly the same pixels as a download.</p>
+      <div id="library-body"></div>
+    </div>
   </section>
 </main>
 

@@ -161,7 +161,9 @@ def plan_optical(
     cloud_max: float = 20.0,
     min_coverage: float = 0.9,
     clear_target: float = 0.8,
+    prefer: set[str] | None = None,
 ) -> Plan:
+    """prefer: item ids already in the user's library — used only to break ties between equally clear scenes."""
     aoi_ea = to_equal_area(aoi.geometry)
     aoi_area = aoi_ea.area
     source = items[0].source_id if items else "?"
@@ -221,7 +223,7 @@ def plan_optical(
                 cov = fp_ea[it.id].intersection(tile_aoi[t.tile]).area / tile_aoi[t.tile].area
                 cc = it.cloud_cover if it.cloud_cover is not None else 100.0
                 cands.append(Candidate(it.id, it.date, cc, cov, cov * (1 - cc / 100), it.relative_orbit))
-            cands.sort(key=lambda c: (-c.clear_fraction, c.cloud_cover, c.date))
+            cands.sort(key=lambda c: (-round(c.clear_fraction, 3), not (prefer and c.item_id in prefer), c.cloud_cover, c.date))
             if not cands:
                 selections.append(Selection(w.label, t.tile, None, 0, False, ["no acquisition intersects this tile in the window"]))
                 missing += 1

@@ -46,6 +46,7 @@ class WindowResult:
     width: int
     height: int
     epsg: int
+    native_grid: bool = True  # False if the output was reprojected from the source grid
 
 
 def sha256_of(path: Path) -> str:
@@ -125,4 +126,4 @@ def fetch_window(href: str, aoi_wgs84: BaseGeometry, output: Path, dst_epsg: int
                            crs=dst_crs, transform=out_transform, nodata=src_nodata, compress="DEFLATE", predictor=2) as dst:
             dst.write(out, 1)
     return WindowResult(href, output, time.time() - t0, sha256_of(output), output.stat().st_size,
-                        out.shape[1], out.shape[0], dst_epsg)
+                        out.shape[1], out.shape[0], dst_epsg, native_grid=src_crs.to_epsg() == dst_epsg)
