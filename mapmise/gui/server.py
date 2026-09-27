@@ -211,6 +211,9 @@ class Handler(BaseHTTPRequestHandler):
         if not self._authorised():
             return self._json({"error": "forbidden"}, 403)
         try:
+            if u.path == "/api/earthdata":
+                from mapmise import auth
+                return self._json(auth.info().to_json())  # never the token itself
             if u.path == "/api/sources":
                 return self._json({sid: src.name for sid, src in load_sources().items()})
             if u.path == "/api/projects":
@@ -269,6 +272,18 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/api/open-folder":
                 _open_folder(Path(body["project"]))
                 return self._json({"ok": True})
+            if u.path == "/api/earthdata":
+                from mapmise import auth
+                if body.get("remove"):
+                    return self._json({"removed": auth.clear()})
+                if body.get("check"):
+                    from mapmise.registry.check import check_source
+                    r = check_source(load_sources()["hls-l30"])
+                    return self._json({"ok": r.ok, "detail": r.detail})
+                try:
+                    return self._json(auth.save(str(body.get("token", ""))).to_json())
+                except ValueError as e:
+                    return self._json({"error": str(e)}, 400)
             if u.path == "/api/show":
                 from mapmise.gui import window as win
                 return self._json({"ok": win.bring_to_front()})

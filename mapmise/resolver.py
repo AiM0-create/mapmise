@@ -78,7 +78,9 @@ def _compatible_shape(need: Need, s: Source) -> bool:
 def resolve_needs(needs: list[Need], bbox: list[float], start: str, end: str, iso3: str | None = None,
                   overrides: dict[str, str] | None = None) -> list[Resolution]:
     """Rank registry sources per need. `overrides` maps need.key (e.g. 'water:static') to a source id."""
+    from mapmise.auth import token
     sources = load_sources()
+    logged_in = token() is not None
     out = []
     for need in needs:
         cands: list[Candidate] = []
@@ -100,11 +102,14 @@ def resolve_needs(needs: list[Need], bbox: list[float], start: str, end: str, is
             if s.resolution_m:
                 reasons.append(f"{s.resolution_m:g} m")
             reasons.append(f"licence: {s.license}")
+            if s.needs_login:
+                reasons.append("uses your NASA Earthdata token" if logged_in else "needs a free NASA Earthdata token")
             cands.append(Candidate(s, reasons))
 
         def rank(c: Candidate):
             s = c.source
             return (
+                0 if logged_in or not s.needs_login else 1,  # never propose what cannot be downloaded
                 0 if need.temporal == "static" or s.covers_full_period(start, end) else 1,
                 0 if s.analysis_ready else 1,
                 0 if not (need.prefer.get("cloud_independent") and s.cloud_dependent) else 1,
@@ -113,9 +118,16 @@ def resolve_needs(needs: list[Need], bbox: list[float], start: str, end: str, is
             )
 
         cands.sort(key=rank)
-        chosen = cands[0].source if cands else None
+        usable = [c for c in cands if logged_in or not c.source.needs_login]
+        chosen = usable[0].source if usable else None
         if overrides and need.key in overrides:
             chosen = sources.get(overrides[need.key], chosen)
-        unmet = None if chosen else f"no registered source with theme '{need.theme}' for {need.temporal} data over this area/period"
+        if chosen:
+            unmet = None
+        elif cands:
+            unmet = (f"available from {cands[0].source.name} with a free NASA Earthdata token — add one in Settings "
+                     "or with: mapmise earthdata login")
+        else:
+            unmet = f"no registered source with theme '{need.theme}' for {need.temporal} data over this area/period"
         out.append(Resolution(need, chosen, cands, unmet))
     return out

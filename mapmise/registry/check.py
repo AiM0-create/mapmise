@@ -34,6 +34,16 @@ class CheckResult:
 
 
 def _head_ok(url: str) -> tuple[bool, str]:
+    from mapmise.drivers.signing import earthdata_resolve, needs_earthdata
+    if needs_earthdata(url):  # NASA protected archive: an authenticated 1-byte read proves access
+        from mapmise.auth import EarthdataLoginRequired
+        try:
+            _, size = earthdata_resolve(url)
+            return True, f"readable with your Earthdata token ({size:,} bytes)" if size else "readable with your Earthdata token"
+        except EarthdataLoginRequired:
+            return True, "download not checked — add an Earthdata token to check it"
+        except (PermissionError, httpx.HTTPError) as e:
+            return False, str(e)
     try:
         r = httpx.head(sign(url), headers=UA, timeout=60, follow_redirects=True)
         if r.status_code in (405, 403):  # some hosts refuse HEAD: try a 1-byte range GET

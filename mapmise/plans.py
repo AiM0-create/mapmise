@@ -24,7 +24,7 @@ from shapely.geometry import box
 from mapmise.aoi import AOI, to_equal_area
 from mapmise.drivers import http as http_driver
 from mapmise.drivers import stac as stac_driver
-from mapmise.drivers.signing import sign
+from mapmise.drivers.signing import earthdata_resolve, needs_earthdata, sign
 from mapmise.geo import UA
 import math
 
@@ -49,6 +49,11 @@ def _sizes(hrefs: dict[str, str], cache: dict[str, int], workers: int = 16) -> d
 
     def head(kv):
         k, h = kv
+        if needs_earthdata(h):  # signed NASA URLs are for GET only; the size comes with the redirect
+            try:
+                return k, earthdata_resolve(h)[1]
+            except Exception:  # noqa: BLE001 — no token, or NASA unreachable: size unknown
+                return k, None
         for _ in range(2):
             try:
                 r = httpx.head(sign(h), headers=UA, timeout=45, follow_redirects=True)

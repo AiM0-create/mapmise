@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.0a3
+
+- NASA Earthdata support: the user's own access token (never a password), stored privately on their computer and
+  sent only to NASA hosts; signed storage links are used in memory and never recorded. Settings → NASA Earthdata in
+  the application, and `mapmise earthdata login | status | check | logout`.
+- New sources: HLS Landsat and Sentinel-2 surface reflectance (30 m) and OPERA DSWx-HLS surface-water maps.
+  New `surface_water` theme; flood and water-body questions now ask for ready-made water maps.
+- Without a token, plans state which requirements an Earthdata dataset would have met.
+
 ## 0.1.0a2
 
 - New Mapmise logo: a folded map in the shape of an M, with contour lines. Used for the app icon on Windows,

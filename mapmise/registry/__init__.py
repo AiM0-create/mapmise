@@ -14,7 +14,7 @@ import yaml
 THEMES = {
     "optical", "sar", "elevation", "water", "hydrography", "vegetation", "landcover", "builtup", "buildings",
     "population", "precipitation", "soil_moisture", "temperature", "boundaries", "transport", "events",
-    "fire", "forest", "soil", "facilities",
+    "fire", "forest", "soil", "facilities", "surface_water",
 }
 PLANNERS = {"optical", "sar", "products"}
 KINDS = {"raster", "vector", "event"}
@@ -41,6 +41,11 @@ class Source:
     description: str
     access: dict
     cloud_dependent: bool = False
+
+    @property
+    def needs_login(self) -> bool:
+        """True for datasets that need the user's own NASA Earthdata token (access.auth: earthdata)."""
+        return self.access.get("auth") == "earthdata"
 
     @property
     def driver(self) -> str:

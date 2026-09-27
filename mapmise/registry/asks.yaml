@@ -29,6 +29,7 @@
        why: "floods happen under cloud; radar backscatter before/after the event shows new open water"}
     - {theme: optical,    temporal: pair,   priority: recommended, why: "optical before/after for validation and mapping where a clear scene exists"}
     - {theme: water,      temporal: static, priority: required,    why: "where water normally is, so new water can be separated from permanent water"}
+    - {theme: surface_water, temporal: pair, priority: recommended, why: "ready-made maps of open water before and after the event, wherever the sky was clear"}
     - {theme: elevation,  temporal: static, priority: required,    why: "low-lying terrain and flow direction; HAND-style exposure needs a DEM"}
     - {theme: population, temporal: static, priority: recommended, why: "who is exposed"}
     - {theme: buildings,  temporal: static, priority: optional,    why: "what is exposed"}
@@ -91,6 +92,7 @@
   needs:
     - {theme: water,   temporal: series, priority: required,    why: "water extent over time from optical (NDWI/MNDWI) or radar"}
     - {theme: water,   temporal: static, priority: recommended, why: "long-term occurrence baseline"}
+    - {theme: surface_water, temporal: series, priority: recommended, why: "ready-made maps of open water on each clear date, no index to compute"}
     - {theme: optical, temporal: series, priority: recommended, why: "green/SWIR bands for water indices"}
 
 - id: terrain

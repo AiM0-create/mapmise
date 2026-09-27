@@ -191,7 +191,7 @@ function renderPlan() {
   $("plan-rows").innerHTML = r.plans.map((p, i) => {
     const have = p.files && p.present === p.files;
     const lib = !have && p.files && p.present + p.from_library === p.files;
-    const sz = have ? "Have" : lib ? "0 MB" : p.size_known ? (p.unknown_sizes ? "≥ " : "") + size(p.bytes) : "Live";
+    const sz = have ? "Have" : lib ? "0 MB" : p.size_known ? (p.unknown_sizes && !p.bytes ? "Unknown" : (p.unknown_sizes ? "≥ " : "") + size(p.bytes)) : "Live";
     const pr = p.needs[0]?.priority;
     const tags = (pr === "required" ? '<span class="tag">Required</span>' : pr === "optional" ? '<span class="tag gray">Optional</span>' : "")
       + (p.fallback_for ? '<span class="tag gray">Cloud-free alternative</span>' : "") + (p.complement_for ? '<span class="tag gray">Fills missing years</span>' : "");
@@ -378,6 +378,33 @@ async function loadLibrary() {
     document.querySelectorAll("#library-body .row.link").forEach((el) => (el.onclick = () => openProject(el.dataset.path)));
   } catch (e) { $("library-body").innerHTML = `<p class="inline-error">${esc(e.message)}</p>`; }
 }
+
+// ------------------------------------------------------------ Settings: NASA Earthdata token
+
+function edMsg(t) { $("ed-msg").textContent = t || ""; $("ed-msg").hidden = !t; }
+async function edRefresh() {
+  try {
+    const i = await api("/api/earthdata");
+    $("ed-status").textContent = !i.present ? "Not set — NASA datasets that need a login are left out of plans."
+      : i.expired ? "Expired — paste a new token." : `Saved${i.source === "environment" ? " (from the EARTHDATA_TOKEN variable)" : ""}; valid until ${fmtDate(i.expires)}.`;
+    $("ed-remove").hidden = !i.present || i.source === "environment"; $("ed-check").hidden = !i.present;
+  } catch (e) { $("ed-status").textContent = e.message; }
+}
+$("settings-btn").onclick = () => { edMsg(""); $("ed-token").value = ""; $("settings").hidden = false; edRefresh(); };
+$("settings-close").onclick = () => { $("ed-token").value = ""; $("settings").hidden = true; };
+$("settings").addEventListener("keydown", (e) => { if (e.key === "Escape") $("settings-close").click(); });
+$("ed-save").onclick = async () => {
+  const t = $("ed-token").value.trim();
+  if (!t) return edMsg("Paste your token first.");
+  try { await api("/api/earthdata", { token: t }); $("ed-token").value = ""; edMsg("Token saved."); edRefresh(); }
+  catch (e) { edMsg(e.message); }
+};
+$("ed-remove").onclick = async () => { await api("/api/earthdata", { remove: true }); edMsg("Token removed from this computer."); edRefresh(); };
+$("ed-check").onclick = async () => {
+  edMsg("Checking with NASA…");
+  try { const r = await api("/api/earthdata", { check: true }); edMsg(r.ok ? `Works: ${r.detail}.` : r.detail); }
+  catch (e) { edMsg(e.message); }
+};
 
 // Small renderer for REPORT.md: headings, tables, bullets, emphasis, code
 function md(src) {

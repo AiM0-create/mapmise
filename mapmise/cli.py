@@ -64,6 +64,7 @@ def print_request(plans: list[dict], unmet: list[dict], verbose: bool = True) ->
         e = pl["estimate"]
         est = ("have" if e["n_assets"] and e.get("present") == e["n_assets"] else
                "library" if e["n_assets"] and e.get("present", 0) + e.get("from_library", 0) == e["n_assets"] else
+               "unknown" if e["known"] and e.get("unknown") and not e.get("to_fetch_bytes", e["windowed_bytes"]) else
                ("≥" if e.get("unknown") else "") + _gb(e.get("to_fetch_bytes", e["windowed_bytes"])) if e["known"] else "live")
         tag = " ↳fallback" if pl.get("fallback_for") else " ↳complement" if pl.get("complement_for") else ""
         print(f"{needs[:28]:28} {(pl['source'] + tag)[:30]:30} {pl['estimate']['n_assets']:5d} {est:>8}  {_verdict_summary(pl['windows'])}")
@@ -197,6 +198,39 @@ def cmd_sources(a: argparse.Namespace) -> int:
             continue
         res = f"{s.resolution_m:g} m" if s.resolution_m else "vector"
         print(f"{s.id:28} {s.kind:6} {s.shape:7} {res:>8}  {', '.join(s.themes):34} {s.license}")
+    return 0
+
+
+def cmd_earthdata(a: argparse.Namespace) -> int:
+    from mapmise import auth
+    if a.action == "login":
+        import getpass
+        print("Paste your NASA Earthdata token (from urs.earthdata.nasa.gov → Generate Token).")
+        print("It is hidden as you paste, stored only on this computer, and sent only to NASA. Never use your password here.")
+        try:
+            info = auth.save(getpass.getpass("Token: "))
+        except ValueError as e:
+            print(e)
+            return 1
+        print(f"Saved. Valid until {info.to_json()['expires'] or 'unknown'}. Check it works with: mapmise earthdata check")
+        return 0
+    if a.action == "logout":
+        print("Token removed from this computer." if auth.clear() else "No saved token.")
+        if auth.info().source == "environment":
+            print(f"A token is still set in the {auth.ENV} environment variable.")
+        return 0
+    info = auth.info()
+    if not info.present:
+        print("No Earthdata token. Add one with: mapmise earthdata login")
+        return 1 if a.action == "check" else 0
+    j = info.to_json()
+    print(f"Token from {j['source']}; " + ("EXPIRED — generate a new one" if j["expired"] else f"valid until {j['expires']}"))
+    if a.action == "check":
+        from mapmise.registry import load_sources
+        from mapmise.registry.check import check_source
+        r = check_source(load_sources()["hls-l30"])
+        print(("✓ " if r.ok else "✗ ") + r.detail)
+        return 0 if r.ok else 1
     return 0
 
 
@@ -387,6 +421,10 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("dir"); s.add_argument("--dry-run", action="store_true"); s.add_argument("--yes", "-y", action="store_true")
     s.add_argument("--threads", type=int, default=12)
     s.set_defaults(fn=cmd_refresh)
+
+    s = sub.add_parser("earthdata", help="your NASA Earthdata token, for datasets such as HLS (stored on this computer only)")
+    s.add_argument("action", choices=["login", "status", "check", "logout"], nargs="?", default="status")
+    s.set_defaults(fn=cmd_earthdata)
 
     s = sub.add_parser("selftest", help="check that this installation works on this computer")
     s.add_argument("--offline", action="store_true", help="skip the check that downloads a small test file")

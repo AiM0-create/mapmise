@@ -54,6 +54,8 @@ Getting the details right matters more than adding many entries. In particular:
 - `analysis_ready` — only `true` if it can be used without calibration or processing. mapmise never processes data.
 - `nodata` — set it when the product declares none and 0 is a valid value.
 - `license` — the provider's terms, in their words.
+- `auth: earthdata` — for datasets in NASA's protected archive. They are proposed only when the user has added an
+  Earthdata token, and `--check` verifies downloads only when one is present. Never add credentials to the registry.
 
 ## Teach a new ask
 

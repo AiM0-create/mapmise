@@ -35,6 +35,7 @@ It runs entirely on your computer. There is no account, no hosted service and no
 - [Reading a plan](#reading-a-plan)
 - [Project structure](#project-structure)
 - [Data registry](#data-registry)
+- [NASA Earthdata datasets](#nasa-earthdata-datasets)
 - [Language understanding](#language-understanding)
 - [Personal library and recipes](#personal-library-and-recipes)
 - [Command-line reference](#command-line-reference)
@@ -104,7 +105,7 @@ To verify an installation:
 For command-line use and scripting, with Python 3.12 or later:
 
 ```bash
-pip install mapmise-0.1.0a2-py3-none-any.whl pywebview   # from the release page; pywebview adds the app window
+pip install mapmise-0.1.0a3-py3-none-any.whl pywebview   # from the release page; pywebview adds the app window
 mapmise selftest
 ```
 
@@ -229,15 +230,16 @@ A project folder is self-contained and may be moved, archived or shared.
 
 ## Data registry
 
-Twenty-four open sources in the current release, each verified against its provider:
+Twenty-seven open sources in the current release, each verified against its provider:
 
 | Theme | Sources |
 |---|---|
-| Optical | Sentinel-2 L2A (10 m, 2015–) · Landsat 4–9 Collection 2 L2 (30 m, 1982–) |
+| Optical | Sentinel-2 L2A (10 m, 2015–) · Landsat 4–9 Collection 2 L2 (30 m, 1982–) · HLS Landsat and Sentinel-2, harmonised (30 m, 2013– / 2015–) ¹ |
 | Radar | Sentinel-1 RTC (10 m, 2014–) · ALOS PALSAR annual mosaic (25 m, 2015–2021) |
 | Vegetation | MODIS 16-day NDVI/EVI (250 m, 2000–) and the optical sources |
 | Elevation | Copernicus DEM GLO-30 · NASADEM |
 | Water | JRC Global Surface Water occurrence and seasonality · OpenStreetMap waterways |
+| Surface-water maps | OPERA DSWx-HLS, classified water per clear scene (30 m, 2023–) ¹ |
 | Land cover and built-up | ESA WorldCover 2021 (10 m) · Impact Observatory annual LULC (10 m, 2017–2023) · ESA CCI (300 m, 1992–2020) |
 | Forest | Hansen/UMD Global Forest Change 2000–2025 |
 | Temperature | MODIS 8-day land surface temperature (1 km) |
@@ -249,8 +251,28 @@ Twenty-four open sources in the current release, each verified against its provi
 | Transport, buildings, facilities | OpenStreetMap via Overpass |
 | Events | GDACS |
 
+¹ Requires a free NASA Earthdata token; see below.
+
 `mapmise sources --check` probes every entry live. A new dataset is a single YAML entry, written from the
 provider's own documentation; see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## NASA Earthdata datasets
+
+Some NASA datasets — the Harmonized Landsat and Sentinel-2 (HLS) archive and OPERA surface-water maps — are served
+from NASA's protected archive and require a free Earthdata Login. Mapmise uses an **access token**, never your
+password:
+
+1. Sign in at [urs.earthdata.nasa.gov](https://urs.earthdata.nasa.gov) and choose **Generate Token**.
+2. Add it in the application under **Settings → NASA Earthdata**, or in a terminal with `mapmise earthdata login`
+   (the input is hidden). Alternatively, set the `EARTHDATA_TOKEN` environment variable.
+3. Confirm it works with `mapmise earthdata check`.
+
+The token is stored only on your computer, in a file readable by your user account alone, and is sent only to NASA
+Earthdata hosts. NASA answers each request with a short-lived signed link to its storage; the token is not forwarded
+there, and neither the token nor the signed link is written to projects, catalogues, reports or recipes. Tokens
+expire after about sixty days and can be revoked at any time from your Earthdata profile.
+
+Without a token, plans state which requirements an Earthdata dataset would have met.
 
 ## Language understanding
 
@@ -301,6 +323,7 @@ Every acquired file is indexed in a personal library across projects.
 | `mapmise refresh <project>` | Extend the latest question to today |
 | `mapmise sources [--theme T] [--check]` | List, or live-verify, the data registry |
 | `mapmise rules` | The vocabulary of ask rules |
+| `mapmise earthdata login \| status \| check \| logout` | Manage your NASA Earthdata token |
 | `mapmise selftest [--offline]` | Verify the installation |
 
 Options for `ask`:
@@ -324,7 +347,8 @@ This is an alpha release. Known limitations:
 
 - Understanding is limited to English and to the analyses described by the ask rules; a question matching no rule
   is reported as such.
-- No soil-moisture source is included yet; the open products require a NASA Earthdata login.
+- No soil-moisture source is included yet: NASA's SMAP products are distributed as HDF5 on the EASE grid rather than
+  as georeferenced rasters, and would need processing that Mapmise deliberately does not perform.
 - OpenStreetMap building queries are limited by area, and public Overpass servers may be slow; `mapmise run` retries.
 - WorldPop does not support partial reads, so the national file is downloaded once and cached.
 - The Planetary Computer token service rate-limits anonymous use; Mapmise backs off and retries. Setting

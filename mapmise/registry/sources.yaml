@@ -480,3 +480,79 @@
     geometry: point
     assets: {facilities: file}
     max_area_km2: 50000
+
+# ---------------------------------------------------------------- NASA Earthdata
+# Searching NASA's catalogue (CMR-STAC) is public; the files are (at least partly) in NASA's protected archive and
+# need the user's own Earthdata token (access.auth: earthdata).
+
+- id: hls-l30
+  name: HLS Landsat 30 m surface reflectance (HLSL30 v2.0)
+  themes: [optical, vegetation, water]
+  kind: raster
+  shape: series
+  resolution_m: 30
+  temporal: {type: series, from: "2013-04", to: null, revisit_days: 8}
+  coverage: global
+  license: "NASA open data, no restrictions (LP DAAC); needs a free Earthdata Login"
+  analysis_ready: true
+  cloud_dependent: true
+  description: Landsat 8/9 surface reflectance harmonised with Sentinel-2 on the same 30 m MGRS grid, with an Fmask cloud layer.
+  access:
+    driver: stac
+    provider: nasa_lpcloud
+    collection: HLSL30_2.0
+    auth: earthdata
+    assets: {blue: B02, green: B03, red: B04, nir: B05, swir16: B06, swir22: B07, fmask: Fmask}
+    default_assets: [red, nir]
+    theme_assets: {vegetation: [red, nir], water: [green, nir, swir16], optical: [red, green, blue, nir]}
+    group_from_id: "\\.T(\\w{5})\\."   # MGRS tile, e.g. HLS.L30.T43PFR.2026187T050952.v2.0
+    planner: optical
+
+- id: hls-s30
+  name: HLS Sentinel-2 30 m surface reflectance (HLSS30 v2.0)
+  themes: [optical, vegetation, water]
+  kind: raster
+  shape: series
+  resolution_m: 30
+  temporal: {type: series, from: "2015-11", to: null, revisit_days: 5}
+  coverage: global
+  license: "NASA open data, no restrictions (LP DAAC); needs a free Earthdata Login"
+  analysis_ready: true
+  cloud_dependent: true
+  description: Sentinel-2 surface reflectance adjusted to match Landsat, on the same 30 m MGRS grid, with an Fmask cloud layer.
+  access:
+    driver: stac
+    provider: nasa_lpcloud
+    collection: HLSS30_2.0
+    auth: earthdata
+    assets: {blue: B02, green: B03, red: B04, nir: B8A, swir16: B11, swir22: B12, fmask: Fmask}
+    default_assets: [red, nir]
+    theme_assets: {vegetation: [red, nir], water: [green, nir, swir16], optical: [red, green, blue, nir]}
+    group_from_id: "\\.T(\\w{5})\\."
+    planner: optical
+
+- id: opera-dswx-hls
+  name: OPERA dynamic surface water extent from HLS (DSWx-HLS v1)
+  themes: [surface_water]
+  kind: raster
+  shape: series
+  resolution_m: 30
+  temporal: {type: series, from: "2023-04", to: null, revisit_days: 3}
+  coverage: global
+  license: "NASA open data, no restrictions (PO.DAAC); needs a free Earthdata Login"
+  analysis_ready: true
+  cloud_dependent: true
+  description: >-
+    Classified water per HLS scene — 0 not water, 1 open water, 2 partial surface water, 252 snow/ice,
+    253 cloud or shadow, 254 ocean masked, 255 no data.
+  access:
+    driver: stac
+    provider: nasa_pocloud
+    collection: OPERA_L3_DSWX-HLS_V1_1.0
+    auth: earthdata                  # part of the archive is in NASA's protected storage
+    assets: {water: [0_B01_WTR, 1_B01_WTR], water_binary: [0_B02_BWTR, 1_B02_BWTR], confidence: [0_B03_CONF, 1_B03_CONF]}
+    default_assets: [water]
+    group_from_id: "_T(\\w{5})_"   # MGRS tile, e.g. OPERA_L3_DSWx-HLS_T43PFR_20260705T051633Z_...
+    planner: optical
+    nodata: 255
+

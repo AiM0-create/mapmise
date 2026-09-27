@@ -20,7 +20,7 @@
     <button data-screen="project">Project</button>
     <button data-screen="library">Library</button>
   </nav>
-  <div class="tools"><button id="quit-btn" class="text-btn" title="Stop Mapmise. Running acquisitions are asked about first.">Quit</button></div>
+  <div class="tools"><button id="settings-btn" class="text-btn">Settings</button><button id="quit-btn" class="text-btn" title="Stop Mapmise. Running acquisitions are asked about first.">Quit</button></div>
 </header>
 
 <main>
@@ -167,6 +167,25 @@
     <h2 class="headline" id="sheet-title"></h2>
     <p class="footnote" id="sheet-text"></p>
     <div class="sheet-actions"><button class="secondary" id="sheet-cancel">Cancel</button><button class="primary" id="sheet-ok">OK</button></div>
+  </div>
+</div>
+
+<div class="sheet-scrim" id="settings" hidden>
+  <div class="sheet wide" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+    <h2 class="headline" id="settings-title">Settings</h2>
+    <p class="section-label" style="margin:18px 0 8px">NASA Earthdata</p>
+    <div class="group">
+      <div class="row"><div class="grow">Access token<div class="footnote" id="ed-status">Checking…</div></div></div>
+      <label class="row"><input id="ed-token" type="password" autocomplete="off" spellcheck="false" placeholder="Paste a new token" aria-label="Earthdata token" style="flex:1;border:0;background:transparent;font-size:.94rem;outline:none"></label>
+    </div>
+    <p class="footnote" style="margin:10px 4px 0">Unlocks NASA datasets such as HLS and OPERA surface water. Generate a free token at
+      <b>urs.earthdata.nasa.gov → Generate Token</b>. Use the token, never your password. It is stored only on this computer
+      and sent only to NASA.</p>
+    <p id="ed-msg" class="status-line" hidden></p>
+    <div class="sheet-actions" style="justify-content:space-between">
+      <div><button class="plain" id="ed-remove">Remove token</button><button class="plain" id="ed-check">Check</button></div>
+      <div><button class="secondary" id="settings-close">Done</button> <button class="primary" id="ed-save">Save token</button></div>
+    </div>
   </div>
 </div>
 

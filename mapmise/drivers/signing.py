@@ -59,3 +59,63 @@ def sign(href: str) -> str:
             tok, exp = _token(*key)
             _cache[key] = (tok, exp)
     return f"{href}?{tok}"
+
+
+# ---------------------------------------------------------------- NASA Earthdata (protected archives)
+#
+# Protected NASA files answer an authenticated request with a redirect to a short-lived signed storage URL.
+# The user's token is sent only to NASA Earthdata hosts; httpx drops the Authorization header when a redirect
+# leaves the origin, so the storage host never sees it. GDAL then reads the signed URL, which carries no token.
+# The signed URL is used in memory only: plans, catalogues and reports record the original NASA address.
+
+_EARTHDATA_SUFFIXES = (".earthdatacloud.nasa.gov", ".earthdata.nasa.gov")
+_ed_cache: dict[str, tuple[str, int | None, float]] = {}
+_ed_lock = threading.Lock()
+_ED_TTL = 45 * 60  # signed URLs last about an hour
+
+
+def needs_earthdata(href: str) -> bool:
+    u = urlparse(href)
+    return u.scheme == "https" and u.hostname is not None and u.hostname.endswith(_EARTHDATA_SUFFIXES) and "protected" in u.path
+
+
+def earthdata_resolve(href: str, client: httpx.Client | None = None) -> tuple[str, int | None]:
+    """(signed URL, file size) for a protected NASA file. Raises EarthdataLoginRequired without a token."""
+    from mapmise.auth import EarthdataLoginRequired, token
+    with _ed_lock:
+        hit = _ed_cache.get(href)
+        if hit and time.time() - hit[2] < _ED_TTL:
+            return hit[0], hit[1]
+    tok = token()
+    if not tok:
+        raise EarthdataLoginRequired()
+    own = client is None
+    client = client or httpx.Client(timeout=60, follow_redirects=True)
+    try:
+        r = client.get(href, headers={"Authorization": f"Bearer {tok}", "Range": "bytes=0-0"})
+    finally:
+        if own:
+            client.close()
+    if r.status_code in (401, 403) or "urs.earthdata.nasa.gov" in str(r.url.host):
+        raise PermissionError("NASA Earthdata did not accept your token (expired, revoked, or the dataset's terms not yet "
+                              "accepted in your Earthdata profile). Generate a new token at urs.earthdata.nasa.gov.")
+    r.raise_for_status()
+    size = None
+    cr = r.headers.get("content-range", "")
+    if "/" in cr and cr.rsplit("/", 1)[1].isdigit():
+        size = int(cr.rsplit("/", 1)[1])
+    final = str(r.url)
+    with _ed_lock:
+        _ed_cache[href] = (final, size, time.time())
+    return final, size
+
+
+_pc_sign = sign
+
+
+def sign(href: str) -> str:  # noqa: F811 — extends the Planetary Computer signer above
+    """A URL that can be read right now: Planetary Computer blobs get a SAS token; protected NASA files resolve
+    to their signed storage URL; everything else is returned unchanged."""
+    if needs_earthdata(href):
+        return earthdata_resolve(href)[0]
+    return _pc_sign(href)

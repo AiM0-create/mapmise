@@ -25,6 +25,8 @@ from mapmise.registry import Source
 PROVIDERS: dict[str, str] = {
     "earth_search": "https://earth-search.aws.element84.com/v1",
     "planetary_computer": "https://planetarycomputer.microsoft.com/api/stac/v1",
+    "nasa_lpcloud": "https://cmr.earthdata.nasa.gov/stac/LPCLOUD",   # NASA LP DAAC (searching is public)
+    "nasa_pocloud": "https://cmr.earthdata.nasa.gov/stac/POCLOUD",   # NASA PO.DAAC
 }
 _FIELDS = ["id", "geometry", "bbox", "properties.datetime", "properties.start_datetime", "properties.end_datetime",
            "properties.eo:cloud_cover", "properties.grid:code", "properties.sat:relative_orbit", "properties.sat:orbit_state",
@@ -99,10 +101,25 @@ def _group(props: dict, key) -> str | None:
     return "/".join(str(v) for v in vals) if all(v is not None for v in vals) else None
 
 
+def _group_from_id(item_id: str, pattern: str | None) -> str | None:
+    """access.group_from_id: a regex whose first group is the tile, for catalogues that keep it only in the id."""
+    if not pattern:
+        return None
+    import re
+    m = re.search(pattern, item_id)
+    return m.group(1) if m else None
+
+
 def normalise(source: Source, feature: dict) -> Item:
     p = feature["properties"]
     alias = source.access.get("assets", {})
-    assets = {c: feature["assets"][k] for c, k in alias.items() if k in feature.get("assets", {})}
+    found = feature.get("assets", {})
+    # an alias may list several provider keys when a catalogue names the same layer differently across items
+    assets = {}
+    for c, ks in alias.items():
+        k = next((k for k in ([ks] if isinstance(ks, str) else ks) if k in found), None)
+        if k:
+            assets[c] = found[k]
     dt = p.get("datetime") or p.get("start_datetime")
     if p.get("start_datetime") and p.get("end_datetime"):  # composites: date by the middle of the interval they summarise
         a_, b_ = (datetime.fromisoformat(p[k].replace("Z", "+00:00")) for k in ("start_datetime", "end_datetime"))
@@ -113,7 +130,7 @@ def normalise(source: Source, feature: dict) -> Item:
         source_id=source.id, id=feature["id"],
         datetime=datetime.fromisoformat(dt.replace("Z", "+00:00")).astimezone(timezone.utc),
         geometry=shape(feature["geometry"]), cloud_cover=p.get("eo:cloud_cover"),
-        group=_group(p, group_key),
+        group=_group(p, group_key) or _group_from_id(feature["id"], source.access.get("group_from_id")),
         relative_orbit=p.get("sat:relative_orbit"), orbit_state=p.get("sat:orbit_state"), epsg=_epsg(p),
         tile_bbox=tuple(bbox) if bbox and len(bbox) == 4 else None, assets=assets,
     )
@@ -129,7 +146,7 @@ def _fetch(q: Query, source: Source, page_size: int = 100) -> list[dict]:
     client = Client.open(PROVIDERS[q.provider])
     alias = source.access.get("assets", {})
     gb = source.access.get("group_by") or []
-    include = _FIELDS + [f"properties.{k}" for k in (gb if isinstance(gb, list) else [gb])] + [f"assets.{alias[c]}" for c in q.assets if c in alias]
+    include = _FIELDS + [f"properties.{k}" for k in (gb if isinstance(gb, list) else [gb])] + [f"assets.{k}" for c in q.assets if c in alias for k in ([alias[c]] if isinstance(alias[c], str) else alias[c])]
     kw = dict(collections=[q.collection], bbox=list(q.bbox), limit=page_size, fields={"include": include, "exclude": ["links"]})
     if q.start and q.end:
         kw["datetime"] = f"{q.start}T00:00:00Z/{q.end}T23:59:59Z"
