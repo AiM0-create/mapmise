@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.0a2
+
+- New Mapmise logo: a folded map in the shape of an M, with contour lines. Used for the app icon on Windows,
+  macOS and Linux, in the application and in the documentation.
+
 ## 0.1.0a1 — first public alpha
 
 - Redesigned interface following Apple's Human Interface principles: grouped lists, translucent toolbar and

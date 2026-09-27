@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="packaging/icon.png" width="96" alt="Mapmise">
+<img src="docs/images/logo.png" width="180" alt="Mapmise">
 
 # Mapmise
 
@@ -104,7 +104,7 @@ To verify an installation:
 For command-line use and scripting, with Python 3.12 or later:
 
 ```bash
-pip install mapmise-0.1.0a1-py3-none-any.whl pywebview   # from the release page; pywebview adds the app window
+pip install mapmise-0.1.0a2-py3-none-any.whl pywebview   # from the release page; pywebview adds the app window
 mapmise selftest
 ```
 
