@@ -5,9 +5,9 @@ from pathlib import Path
 
 from shapely.geometry import box
 
-from geofetch import recipe
-from geofetch.library import Library
-from geofetch.project import Project
+from mapmise import recipe
+from mapmise.library import Library
+from mapmise.project import Project
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 

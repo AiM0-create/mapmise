@@ -1,5 +1,5 @@
 [project]
-name = "geofetch"
+name = "mapmise"
 version = "0.1.0a1"
 description = "Say what you want to analyse and where; get the right open geospatial data, clipped, organised and documented, locally."
 readme = "README.md"
@@ -24,6 +24,7 @@ dependencies = [
     "rasterio>=1.4",
     "numpy>=1.26",
     "httpx>=0.27",
+    "certifi",
     "pyyaml>=6.0",
     "onnxruntime>=1.18",
     "tokenizers>=0.19",
@@ -33,17 +34,17 @@ dependencies = [
 dev = ["pytest>=8"]
 
 [project.scripts]
-geofetch = "geofetch.cli:main"
+mapmise = "mapmise.cli:main"
 
 [build-system]
 requires = ["hatchling>=1.26"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["geofetch"]
+packages = ["mapmise"]
 
 [tool.hatch.build.targets.sdist]
-include = ["geofetch", "tests", "docs", "experiments", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md", "CHANGELOG.md", "CONTRIBUTING.md"]
+include = ["mapmise", "tests", "docs", "experiments", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md", "CHANGELOG.md", "CONTRIBUTING.md"]
 
 [tool.pytest.ini_options]
 filterwarnings = ["ignore::DeprecationWarning", "ignore::FutureWarning"]

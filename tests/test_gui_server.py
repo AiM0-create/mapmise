@@ -9,8 +9,8 @@ from pathlib import Path
 
 import pytest
 
-from geofetch.gui import server
-from geofetch.project import Project
+from mapmise.gui import server
+from mapmise.project import Project
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
@@ -26,7 +26,7 @@ def running(tmp_path, monkeypatch):
 
 
 def _get(url, token=None):
-    req = urllib.request.Request(url, headers={"X-Geofetch-Token": token} if token else {})
+    req = urllib.request.Request(url, headers={"X-Mapmise-Token": token} if token else {})
     with urllib.request.urlopen(req, timeout=10) as r:
         return r.status, r.read()
 
@@ -63,7 +63,20 @@ def test_static_files_cannot_escape_the_static_folder(running):
 
 def test_prepare_rejects_empty_ask(running):
     req = urllib.request.Request(running + "/api/prepare", data=b'{"text": "  "}', method="POST",
-                                 headers={"X-Geofetch-Token": server.TOKEN, "Content-Type": "application/json"})
+                                 headers={"X-Mapmise-Token": server.TOKEN, "Content-Type": "application/json"})
     with pytest.raises(urllib.error.HTTPError) as e:
         urllib.request.urlopen(req, timeout=10)
     assert e.value.code == 400 and "Describe" in json.loads(e.value.read())["error"]
+
+
+def test_quit_stops_the_server(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "WORKSPACE", tmp_path)
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
+    t = threading.Thread(target=httpd.serve_forever, daemon=True)
+    t.start()
+    req = urllib.request.Request(f"http://127.0.0.1:{httpd.server_address[1]}/api/quit", data=b"{}", method="POST",
+                                 headers={"X-Mapmise-Token": server.TOKEN, "Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=10) as r:
+        assert json.loads(r.read())["ok"] is True
+    t.join(timeout=5)
+    assert not t.is_alive()

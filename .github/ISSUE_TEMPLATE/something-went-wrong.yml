@@ -14,4 +14,4 @@ body:
     attributes: {label: Output, description: "Paste the plan table or error. `REPORT.md` and `requests/*.json` from the project help too.", render: text}
   - type: input
     id: version
-    attributes: {label: Version, description: "`geofetch --version`, operating system, Python version"}
+    attributes: {label: Version, description: "`mapmise --version`, operating system, Python version"}

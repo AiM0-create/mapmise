@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Mapmise
+Comment=Say what you want to analyse and where; get the right open geospatial data, ready.
+Exec=Mapmise
+Icon=mapmise
+Categories=Science;Geography;
+Terminal=false

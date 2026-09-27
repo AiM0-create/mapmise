@@ -2,7 +2,7 @@
 
 Companion to `PRODUCT_DISCOVERY.md` §20. All numbers measured 2026-09-15 from this machine
 (Linux, GDAL 3.12, ~7 MB/s to `sentinel-cogs.s3.us-west-2.amazonaws.com`). Scripts under
-`experiments/`, reusable code under `geofetch/`. Reproduce with:
+`experiments/`, reusable code under `mapmise/`. Reproduce with:
 
 ```bash
 uv pip install -e . && .venv/bin/python experiments/e1_planner.py && .venv/bin/python experiments/e2_transfer.py && .venv/bin/python experiments/e2b_transfer_scaling.py && .venv/bin/python experiments/e2c_parallel_windows.py
@@ -93,7 +93,7 @@ Flood ask, Chitradurga, `--event 2026-08-15`: 7 sources, 50 files, ≈3.5 GB est
 
 ## E5 — Built-in AI for understanding asks (2026-09-27)
 
-Question: can a small model shipped inside geofetch (no API, offline) understand asks that the keyword rules miss, without inventing anything?
+Question: can a small model shipped inside mapmise (no API, offline) understand asks that the keyword rules miss, without inventing anything?
 
 Model: sentence-transformers/all-MiniLM-L6-v2, 8-bit ONNX, 23 MB (Apache-2.0), run with onnxruntime on the CPU: 0.2 s to load, ~1 ms per sentence. It embeds the ask and compares it with example phrasings attached to each ask rule; it can only select existing rules. A set of everyday non-GIS sentences acts as "none of the above".
 

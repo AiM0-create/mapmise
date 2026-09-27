@@ -7,3 +7,4 @@ experiments/out/
 *.aux.xml
 dist/
 .claude/
+build/

@@ -1,5 +1,7 @@
 # Product Discovery: Project-Aware Geospatial Data Acquisition
 
+> The product was developed under the working name *geofetch* and released as **mapmise** (the name geofetch is taken by a bioinformatics package). Historical sections below use the new name throughout.
+
 Status: discovery complete, **qualified GO** (see §21). E1 and E2 executed 2026-09-15. Positioning revised 2026-09-18 (§9a) and again 2026-09-26 after finding earthlens (§9b). **Alpha 0.1.0a1** implements §9b — see `README.md` and `docs/EXPERIMENTS.md`.
 Date: 2026-09-15. Environment inspected: empty repo; host has Python 3.14, GDAL 3.12.2, QGIS 4.2.2, Node 22; no aria2/rclone/EODAG installed.
 
@@ -171,7 +173,7 @@ What it solves: breadth of *access*, better than we can match. What it does not 
 
 Consequences, decided with the owner:
 - **Do not race on breadth.** Grow the registry by what asks need, not towards a provider count.
-- **Do not depend on earthlens.** Its GPL-3.0 licence would bind this project; the owner chose to stay Apache-2.0. Sources are re-engineered clean-room: each entry is written from the *provider's* documentation and verified by our own live probe (`geofetch sources --check`); no code or catalogue files are copied from earthlens or any other tool.
+- **Do not depend on earthlens.** Its GPL-3.0 licence would bind this project; the owner chose to stay Apache-2.0. Sources are re-engineered clean-room: each entry is written from the *provider's* documentation and verified by our own live probe (`mapmise sources --check`); no code or catalogue files are copied from earthlens or any other tool.
 - **The wedge is the layer nobody has:** ask → needs with reasons → feasibility per window → automatic fallback and stitching → approval → area-only fetch → catalogue + report. earthlens makes access easier every month; that makes this layer more valuable, not less.
 - THOR (FM4CS; a Sentinel-1/2/3 foundation model, MIT) is downstream: a consumer of prepared local stacks, not a competitor.
 
@@ -261,7 +263,7 @@ Two representations, one source of truth:
 
 - **`project.json`** — objective (template id + free text), AOI (path + WKT hash), period, project CRS, datasets declared (name, requirement id, status), settings.
 - **Static STAC catalogue** under `<project>/catalog/` — one STAC Item per acquired asset set (geometry, datetime, `proj:*`, `eo:bands`, `file:size`, `file:checksum`, local `href`s, provider item id and source href in `derived_from`/`providers`). QGIS ≥ 3.40 opens this natively; pystac reads it; it *is* the index of local assets.
-- **`recipes/<plan-id>.json`** — the approved `AcquisitionPlan` plus execution results: queries issued (endpoint, body, time), items considered/selected with reasons, transfers (bytes, duration, checksum, verification), processing steps (op, params, GDAL version, inputs → outputs), software versions. Re-runnable: `geofetch rerun recipes/<id>.json`.
+- **`recipes/<plan-id>.json`** — the approved `AcquisitionPlan` plus execution results: queries issued (endpoint, body, time), items considered/selected with reasons, transfers (bytes, duration, checksum, verification), processing steps (op, params, GDAL version, inputs → outputs), software versions. Re-runnable: `mapmise rerun recipes/<id>.json`.
 - **SQLite** (`.index.sqlite`) — derived cache over the STAC items for fast gap queries (coverage per dataset × month × tile). Rebuildable from the catalogue; never the source of truth.
 
 Gap analysis = `required(dataset, period, tiles) − present(catalogue)` computed in SQL/Shapely. "Import existing folder" = run GDAL metadata extraction over files, create STAC Items with `provenance: imported`.
@@ -270,7 +272,7 @@ Reproducibility export = `project.json + catalog/*.json + recipes/*.json` (kilob
 
 ## 16. UI / workflow concept
 
-**Phase 1 UI is a CLI** (`geofetch init|plan|show|approve|run|status|gaps|rerun`) plus the plan rendered as readable text/JSON. Reason: the hypothesis under test is the planner + manifest, and a GUI is the most expensive, least informative part to build first. Every command emits JSON so the future GUI is a view over the same objects.
+**Phase 1 UI is a CLI** (`mapmise init|plan|show|approve|run|status|gaps|rerun`) plus the plan rendered as readable text/JSON. Reason: the hypothesis under test is the planner + manifest, and a GUI is the most expensive, least informative part to build first. Every command emits JSON so the future GUI is a view over the same objects.
 
 **Phase 2 desktop shell** (only after §20 experiments pass): Tauri + web frontend embedding the Python core as a sidecar, or a local FastAPI + browser UI; decide later on packaging evidence. Screens: Project overview (dataset status tiles), Map/AOI (draw/upload), Plan review (editable table, coverage map, size/quota bar, explanations, Approve/Run), Activity (transfers, processing, logs). Natural-language box is one entry point that produces a plan; the plan is always editable with normal controls. "Open in QGIS" = launch QGIS with the static catalogue/VRTs; a QGIS plugin is a later thin client, not a dependency.
 
@@ -278,14 +280,14 @@ Reproducibility export = `project.json + catalog/*.json + recipes/*.json` (kilob
 
 Scope, deliberately one sensor, one provider family, no GUI:
 
-1. `geofetch init` — project dir, `project.json`, AOI from GeoJSON/GPKG/Shapefile (OGR), period, objective text.
+1. `mapmise init` — project dir, `project.json`, AOI from GeoJSON/GPKG/Shapefile (OGR), period, objective text.
 2. Objective templates (YAML): `vegetation_timeseries`, `flood_change_detection_sar` — each lists requirements with **explanations**.
 3. Intent interpreter: LLM (Claude via API, model configurable) → `StructuredIntent`; **also** a fully manual path (`--template vegetation_timeseries --bands red,nir --cloud-max 20 --step monthly`) so the LLM is optional from day one.
 4. Planner for Sentinel-2 L2A on **Earth Search** (anonymous, COG, probed working): tile intersection, per-tile-per-window best-scene selection, composite-mode selection, coverage report, byte estimate (HEAD × area fraction + fixed overhead), prep steps, and a **feasibility verdict per window** — E1 showed that in July/August 2026 no combination of Sentinel-2 scenes reaches 80 % expected clear coverage of Karnataka; the plan must state this and propose alternatives (Sentinel-1, coarser daily optical, longer composite window) instead of silently proposing a cloudy mosaic.
-5. Plan file + `geofetch show` (human-readable) + `geofetch approve`.
+5. Plan file + `mapmise show` (human-readable) + `mapmise approve`.
 6. Transfer: `GDALWindowTransfer` for selected bands; SHA-256; resume by skipping verified outputs.
 7. Prepare: clip, reproject to project UTM, COG, organise, per-month VRT.
-8. Provenance: recipe + static STAC catalogue; `geofetch gaps`; `geofetch rerun`.
+8. Provenance: recipe + static STAC catalogue; `mapmise gaps`; `mapmise rerun`.
 9. Import existing folder into the catalogue.
 
 Add **Sentinel-1 RTC via Planetary Computer** as MVP+1 (signing via stac-asset's `PlanetaryComputerClient`), with the pre/post pairing rule set (same relative orbit + orbit state, VV+VH, nearest dates to event ± windows). This is justified because the flood use case is the second concrete workflow and MPC RTC removes the SNAP dependency; it also forces the transfer layer to handle signed URLs early.
@@ -308,7 +310,7 @@ Explicitly **not** in MVP: CDSE auth/quotas, EODAG adapter, rainfall/soil moistu
 | Question | Answer | Mitigation |
 |---|---|---|
 | Does EODAG already solve enough? | No. It solves search/auth/download, not planning, coverage, state, provenance. Its filter abstraction leaked in today's probe. | Reuse it as an adapter; own normalisation + planning. |
-| Do researchers prefer notebooks? | Many do. | Core is a Python package; the CLI/GUI are views. Notebook users get `geofetch.plan()` and the recipe format. |
+| Do researchers prefer notebooks? | Many do. | Core is a Python package; the CLI/GUI are views. Notebook users get `mapmise.plan()` and the recipe format. |
 | Do GIS analysts just want a QGIS plugin? | Some do; QGIS 4 broke the plugin ecosystem in 2026 and native STAC download is broken. | Static STAC output gives QGIS integration for free; a thin plugin can come later. |
 | Cloud-first trend / EOPF Zarr? | Real. Large-area, many-year analyses belong in openEO/GEE. | Target AOI-scale local workflows (districts, basins, seasons), metered networks, offline reproducibility. Windowed transfer works on Zarr/COG alike; add a Zarr adapter when EOPF is operational. |
 | Provider auth too fragmented? | Yes, if we try to cover all. | One anonymous provider first; stac-asset clients for the next two; never invent auth code. |

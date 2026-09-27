@@ -3,7 +3,7 @@ import time
 
 import httpx
 
-import geofetch.drivers.signing as sg
+import mapmise.drivers.signing as sg
 
 
 def _fake_get_factory(calls, statuses):

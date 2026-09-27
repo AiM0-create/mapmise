@@ -6,15 +6,15 @@ from pathlib import Path
 import pytest
 from shapely.geometry import box
 
-from geofetch.aoi import load_aoi
-from geofetch.drivers.stac import Item, normalise
-from geofetch.planner.optical import monthly_windows, plan_optical, pre_post_windows
-from geofetch.planner.sar import plan_sar
-from geofetch.registry import load_sources
+from mapmise.aoi import load_aoi
+from mapmise.drivers.stac import Item, normalise
+from mapmise.planner.optical import monthly_windows, plan_optical, pre_post_windows
+from mapmise.planner.sar import plan_sar
+from mapmise.registry import load_sources
 
 ROOT = Path(__file__).resolve().parent.parent
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
-FIX = json.loads((FIXTURES / "chitradurga_2026-06_2tiles.json").read_text())
+FIX = json.loads((FIXTURES / "chitradurga_2026-06_2tiles.json").read_text(encoding="utf-8"))
 
 
 @pytest.fixture(scope="module")

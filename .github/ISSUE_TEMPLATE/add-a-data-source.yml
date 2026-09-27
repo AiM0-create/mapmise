@@ -23,4 +23,4 @@ body:
       label: Before opening a pull request
       options:
         - label: I wrote the entry from the provider's documentation
-        - label: "`geofetch sources --check <id>` passes"
+        - label: "`mapmise sources --check <id>` passes"

@@ -1,9 +1,9 @@
-# geofetch
+# mapmise
 
-**Say what you want to analyse and where. geofetch works out which open geospatial data that needs, checks whether it is actually usable for your area and period, fetches only your area, organises and dates it, and writes down exactly how — ready for QGIS or Python.**
+**Say what you want to analyse and where. mapmise works out which open geospatial data that needs, checks whether it is actually usable for your area and period, fetches only your area, organises and dates it, and writes down exactly how — ready for QGIS or Python.**
 
 ```bash
-geofetch ask "I heard a flood happened in Chitradurga in August 2026, help me analyse it locally"
+mapmise ask "I heard a flood happened in Chitradurga in August 2026, help me analyse it locally"
 ```
 
 ```
@@ -35,17 +35,19 @@ fetch 9 source(s) into ./chitradurga-2026-08? [y/N]
 
 Nothing is downloaded until you approve the plan.
 
-> **Alpha.** Works end to end on real data today. Understanding is rule-based (no language model yet), and the registry covers 24 sources. Expect rough edges — and please report them.
+> **Alpha.** Works end to end on real data today, with 24 open sources and a small built-in AI that runs on your computer. Expect rough edges — and please report them.
+
+*The name:* chefs call laying out every ingredient, prepared and measured, before cooking *mise en place*. mapmise does that for maps: everything your analysis needs, fetched, clipped and labelled before you start.
 
 ## Why this exists
 
-Every analysis starts with the same day of work: decide what data you need, find it across catalogues that all behave differently, discover that half of it is clouded out, fetch it, clip it, reproject it, name it sensibly, and try to remember how you got it. Experts do this on autopilot and still lose the day. Newcomers get it wrong. geofetch does that day for you — and keeps the record.
+Every analysis starts with the same day of work: decide what data you need, find it across catalogues that all behave differently, discover that half of it is clouded out, fetch it, clip it, reproject it, name it sensibly, and try to remember how you got it. Experts do this on autopilot and still lose the day. Newcomers get it wrong. mapmise does that day for you — and keeps the record.
 
 It is deliberately **not** an analysis tool. It never computes indices, masks clouds or classifies anything. If an open, analysis-ready product exists (radiometrically terrain-corrected radar, composited NDVI, land cover, surface water occurrence), you get that product.
 
 ## What makes it different
 
-Plenty of excellent tools give you *access* to data: [EODAG](https://github.com/CS-SI/eodag), [earthlens](https://github.com/serapeum-org/earthlens), [pystac-client](https://github.com/stac-utils/pystac-client), the QGIS STAC browser, Copernicus Browser. You tell them which dataset; they fetch it. geofetch sits one step earlier and one step later:
+Plenty of excellent tools give you *access* to data: [EODAG](https://github.com/CS-SI/eodag), [earthlens](https://github.com/serapeum-org/earthlens), [pystac-client](https://github.com/stac-utils/pystac-client), the QGIS STAC browser, Copernicus Browser. You tell them which dataset; they fetch it. mapmise sits one step earlier and one step later:
 
 - **From the analysis to the data.** "Flood" means radar before and after, a DEM, normal water extent, population, roads — each with a stated reason. Rules are plain YAML anyone can extend.
 - **Feasibility before download.** Per tile and per month it picks the clearest scene and says when a period is *infeasible* for optical data — then adds a cloud-independent alternative automatically. When one product does not cover all your years, it stitches in another that does, and tells you which years nothing covers.
@@ -54,41 +56,72 @@ Plenty of excellent tools give you *access* to data: [EODAG](https://github.com/
 
 ## Install
 
-Python ≥ 3.12. Download the wheel from the [latest release](../../releases) and install it:
+### The app (Windows, macOS, Linux)
+
+Download the file for your computer from the [latest release](../../releases/latest):
+
+| Computer | File | Then |
+|---|---|---|
+| Windows 10/11 | `Mapmise-…-windows-x64-setup.exe` | run it; Mapmise appears in the Start menu. No administrator rights needed. |
+| Mac with Apple silicon (M1 or newer) | `Mapmise-…-macos-arm64.dmg` | open it and drag Mapmise to Applications |
+| Mac with Intel processor | `Mapmise-…-macos-x64.dmg` | same |
+| Linux | `Mapmise-…-linux-x64.AppImage` | make it executable (`chmod +x`) and double-click it |
+
+Starting Mapmise opens it in your web browser. It runs entirely on your computer; nothing is hosted anywhere.
+Use the **Quit** button in the app to stop it.
+
+**"Unknown publisher" warnings.** The alpha installers are not yet signed with a paid code-signing
+certificate, so your computer will warn you the first time:
+
+- **Windows** (SmartScreen "Windows protected your PC"): click **More info → Run anyway**.
+- **macOS** ("Apple could not verify…"): click **Done**, then open **System Settings → Privacy & Security**, scroll
+  down and click **Open Anyway** next to Mapmise. You only need to do this once.
+
+Each release lists SHA-256 checksums of every file (`SHA256SUMS.txt`) and is built from this repository by
+[a public workflow](.github/workflows/release.yml), which tests every build on its own operating system first.
+
+To check an installation: Windows `"%LOCALAPPDATA%\Programs\Mapmise\mapmise-cli.exe" selftest`,
+macOS `/Applications/Mapmise.app/Contents/MacOS/mapmise-cli selftest`, Linux `./Mapmise-…AppImage cli selftest`.
+
+### With Python (for the command line and scripting)
+
+Python ≥ 3.12:
 
 ```bash
-pip install geofetch-0.1.0a1-py3-none-any.whl
-geofetch gui
+pip install mapmise-0.1.0a1-py3-none-any.whl    # from the release page
+mapmise selftest
+mapmise gui
 ```
 
 Or from source:
 
 ```bash
-git clone https://github.com/GITHUB_USER/geofetch.git && cd geofetch
+git clone https://github.com/GITHUB_USER/mapmise.git && cd mapmise
 python -m venv .venv && .venv/bin/pip install -e ".[dev]"
-.venv/bin/geofetch --version
+.venv/bin/mapmise --version
 ```
 
-GDAL comes bundled with the rasterio wheel; no separate install is needed. QGIS is optional (for `geofetch open`).
+GDAL comes bundled with the rasterio wheel; no separate install is needed. QGIS is optional (for opening projects
+in QGIS); mapmise finds it on the PATH, in the standard Windows install folders, or in macOS Applications.
 
 ## The app
 
 ```bash
-geofetch gui
+mapmise gui
 ```
 
-opens geofetch in your browser. It runs entirely on your computer (nothing is hosted anywhere) and has four screens:
+opens mapmise in your browser. It runs entirely on your computer (nothing is hosted anywhere) and has four screens:
 
 1. **Ask** — type what you want to analyse; optional place, dates, event date or your own boundary file.
 2. **Plan** — what it understood, the area on a map, and every dataset with its verdict, size and reasons. Untick what you don't want, swap a source from the dropdown, click a row for the details, then **Fetch**. Files you already have in the project are marked and not counted.
 3. **Fetching** — progress per source; safe to close, it resumes.
 4. **Project** — what you have, what's missing and why, the report, **Open in QGIS**, or ask something else about the same area.
 
-New projects go to `~/geofetch-projects` (change with `--workspace`). Everything the app does is written to the same project files as the command line.
+New projects go to `~/mapmise-projects` (change with `--workspace`). Everything the app does is written to the same project files as the command line.
 
 ## Built-in AI
 
-geofetch ships a small language model (23 MB, runs offline on your CPU, no account or API key). It lets you ask in your own words:
+mapmise ships a small language model (23 MB, runs offline on your CPU, no account or API key). It lets you ask in your own words:
 
 > “Farmers near Hiriyur lost their groundnut because it barely rained in July 2026”
 
@@ -105,22 +138,22 @@ Model: sentence-transformers/all-MiniLM-L6-v2 (Apache-2.0), 8-bit ONNX, run with
 
 ## Your library
 
-Every file geofetch downloads is indexed in one personal library (a small database file in your home folder). Three things follow:
+Every file mapmise downloads is indexed in one personal library (a small database file in your home folder). Three things follow:
 
-- **Reuse instead of download.** Ask about Hiriyur taluk after you already fetched Chitradurga district, and the plan says *In your library* — the files are clipped from what you have, in seconds, with 0 MB transferred. geofetch reuses a file only when that gives exactly the same pixels as a fresh download (same scene, same band, still on the source's own grid, same projection, fully covering the new area); otherwise it downloads. When two scenes are equally good, it prefers the one you already have; it never picks a worse scene for that.
-- **What do I already have here?** `geofetch library --place "Hiriyur"` or the Library screen in the app.
-- **Share a recipe, not gigabytes.** `geofetch recipe export <project>` writes one small file (area, questions, the exact scenes and URLs chosen, checksums). `geofetch recipe run recipe.json <folder>` rebuilds the dataset and reports which files are byte-identical. Live sources such as OpenStreetMap are reported as changed by design.
+- **Reuse instead of download.** Ask about Hiriyur taluk after you already fetched Chitradurga district, and the plan says *In your library* — the files are clipped from what you have, in seconds, with 0 MB transferred. mapmise reuses a file only when that gives exactly the same pixels as a fresh download (same scene, same band, still on the source's own grid, same projection, fully covering the new area); otherwise it downloads. When two scenes are equally good, it prefers the one you already have; it never picks a worse scene for that.
+- **What do I already have here?** `mapmise library --place "Hiriyur"` or the Library screen in the app.
+- **Share a recipe, not gigabytes.** `mapmise recipe export <project>` writes one small file (area, questions, the exact scenes and URLs chosen, checksums). `mapmise recipe run recipe.json <folder>` rebuilds the dataset and reports which files are byte-identical. Live sources such as OpenStreetMap are reported as changed by design.
 
-`geofetch refresh <project>` extends the latest question to today and fetches only what is new. Index projects made before the library existed with `geofetch library --scan ~/geofetch-projects`.
+`mapmise refresh <project>` extends the latest question to today and fetches only what is new. Index projects made before the library existed with `mapmise library --scan ~/mapmise-projects`.
 
 ## Use from the command line
 
 ```bash
-geofetch ask "Assess agricultural drought in Chitradurga during the 2026 monsoon"
-geofetch ask "Urban expansion of Bengaluru between 2005 and 2025" --dry-run
-geofetch ask "Forest loss in Wayanad since 2015"
-geofetch ask "Hospital and school access in Tumakuru district"
-geofetch ask "Urban heat in Bengaluru in April 2026"
+mapmise ask "Assess agricultural drought in Chitradurga during the 2026 monsoon"
+mapmise ask "Urban expansion of Bengaluru between 2005 and 2025" --dry-run
+mapmise ask "Forest loss in Wayanad since 2015"
+mapmise ask "Hospital and school access in Tumakuru district"
+mapmise ask "Urban heat in Bengaluru in April 2026"
 ```
 
 Place and dates are read from the sentence and shown back to you. Override anything:
@@ -140,12 +173,12 @@ Place and dates are read from the sentence and shown back to you. Override anyth
 Then:
 
 ```bash
-geofetch status  ./chitradurga-2026-08    # what the project holds, what is missing and why
-geofetch run     ./chitradurga-2026-08    # resume or retry — completed files are skipped
-geofetch open    ./chitradurga-2026-08    # per-period mosaics, vectors and the AOI in QGIS
-geofetch report  ./chitradurga-2026-08    # regenerate REPORT.md
-geofetch sources [--theme water]          # the data registry
-geofetch rules                            # the words geofetch understands
+mapmise status  ./chitradurga-2026-08    # what the project holds, what is missing and why
+mapmise run     ./chitradurga-2026-08    # resume or retry — completed files are skipped
+mapmise open    ./chitradurga-2026-08    # per-period mosaics, vectors and the AOI in QGIS
+mapmise report  ./chitradurga-2026-08    # regenerate REPORT.md
+mapmise sources [--theme water]          # the data registry
+mapmise rules                            # the words mapmise understands
 ```
 
 ### Reading a plan
@@ -174,11 +207,11 @@ chitradurga-2026-08/
   catalog/            static STAC catalogue — QGIS ≥ 3.40: Browser → STAC → add catalog/catalog.json
   data/<source>/<window>/<item>_<band>.tif   area-clipped Cloud-Optimised GeoTIFFs in one UTM projection
   data/<source>/static/<source>_<layer>.gpkg vectors, clipped
-  data/vrt/           per-period mosaics built by `geofetch open`
+  data/vrt/           per-period mosaics built by `mapmise open`
   REPORT.md           the acquisition record in plain language
   .cache/             catalogue searches and file sizes; safe to delete
 
-Whole files that are identical across projects (a country population raster, a monthly global rainfall file) are cached once in `~/.cache/geofetch/files` (override with `GEOFETCH_CACHE`).
+Whole files that are identical across projects (a country population raster, a monthly global rainfall file) are cached once in `~/.cache/mapmise/files` (override with `MAPMISE_CACHE`).
 ```
 
 Rasters are reprojected with nearest-neighbour resampling, so every output value exists in the source; nothing is interpolated.
@@ -203,15 +236,15 @@ Rasters are reprojected with nearest-neighbour resampling, so every output value
 | transport, buildings, facilities | OpenStreetMap via Overpass |
 | events | GDACS |
 
-`geofetch sources --check` probes every entry live. Adding a dataset is a YAML entry — see [CONTRIBUTING.md](CONTRIBUTING.md). Every entry is written from the provider's own documentation and verified by that check.
+`mapmise sources --check` probes every entry live. Adding a dataset is a YAML entry — see [CONTRIBUTING.md](CONTRIBUTING.md). Every entry is written from the provider's own documentation and verified by that check.
 
 ## Known limits
 
-- Understanding is rule-based. An ask that matches no rule says so; `geofetch rules` shows the vocabulary.
+- Understanding is rule-based. An ask that matches no rule says so; `mapmise rules` shows the vocabulary.
 - No soil-moisture source yet (the open ones need NASA Earthdata login).
-- OpenStreetMap building queries are capped by area; Overpass servers can be slow or busy — `geofetch run` retries.
+- OpenStreetMap building queries are capped by area; Overpass servers can be slow or busy — `mapmise run` retries.
 - WorldPop's server does not support partial reads, so the country file (~0.5 GB for India) is downloaded once per project.
-- Planetary Computer's token service rate-limits anonymous use; geofetch backs off and retries. Set `PC_SDK_SUBSCRIPTION_KEY` for higher limits.
+- Planetary Computer's token service rate-limits anonymous use; mapmise backs off and retries. Set `PC_SDK_SUBSCRIPTION_KEY` for higher limits.
 - "Expected clear coverage" is estimated from scene-level cloud percentages, not pixel masks.
 
 ## Licence and data attribution

@@ -2,7 +2,7 @@ from datetime import date
 
 import pytest
 
-from geofetch.understand import parse_period, place_candidates
+from mapmise.understand import parse_period, place_candidates
 
 TODAY = date(2026, 9, 26)
 

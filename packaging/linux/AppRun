@@ -1,0 +1,5 @@
+#!/bin/sh
+# AppImage entry point: the app by default; `Mapmise.AppImage cli <command>` for the terminal commands.
+HERE="$(dirname "$(readlink -f "$0")")"
+if [ "$1" = "cli" ]; then shift; exec "$HERE/usr/lib/mapmise/mapmise-cli" "$@"; fi
+exec "$HERE/usr/lib/mapmise/Mapmise" "$@"

@@ -3,8 +3,8 @@ import re
 
 import pytest
 
-from geofetch.registry import DRIVERS, SHAPES, THEMES, load_ask_rules, load_sources
-from geofetch.resolver import parse_ask, resolve_needs
+from mapmise.registry import DRIVERS, SHAPES, THEMES, load_ask_rules, load_sources
+from mapmise.resolver import parse_ask, resolve_needs
 
 BBOX_IN = [76.0, 13.5, 77.0, 15.0]
 

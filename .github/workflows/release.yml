@@ -1,0 +1,114 @@
+name: release
+
+# Builds the desktop app for Windows, macOS and Linux, tests each build on its own operating system,
+# and — for a version tag (v*) — attaches everything to a DRAFT GitHub release for a maintainer to publish.
+# Run it by hand (Actions → release → Run workflow) to get the installers without releasing.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  desktop:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: windows-latest, name: windows-x64}
+          - {os: macos-14, name: macos-arm64}        # Apple silicon (M1 and newer)
+          - {os: macos-15-intel, name: macos-x64}    # Intel Macs
+          - {os: ubuntu-22.04, name: linux-x64}      # older glibc, so the AppImage runs on most distributions
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - name: Install
+        run: python -m pip install ".[dev]" pyinstaller pillow
+      - name: Test (offline suite, on this operating system)
+        run: python -m pytest -q
+      - name: Build the app
+        run: |
+          pyinstaller --noconfirm --distpath build/dist --workpath build/work packaging/mapmise.spec
+          echo "VERSION=$(python -c 'import mapmise; print(mapmise.__version__)')" >> "$GITHUB_ENV"
+          mkdir -p build/installers
+      - name: Self-test the built app (real download over HTTPS)
+        run: |
+          case "${{ runner.os }}" in
+            Windows) CLI=build/dist/Mapmise/mapmise-cli.exe ;;
+            macOS)   CLI=build/dist/Mapmise.app/Contents/MacOS/mapmise-cli ;;
+            *)       CLI=build/dist/Mapmise/mapmise-cli ;;
+          esac
+          cd "$RUNNER_TEMP"   # away from the source tree, so only the bundle is used
+          "$GITHUB_WORKSPACE/$CLI" --version
+          "$GITHUB_WORKSPACE/$CLI" selftest
+
+      - name: Package (Windows installer + portable zip)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; }
+          & $iscc "/DAppVersion=$env:VERSION" packaging\windows\mapmise.iss
+          Compress-Archive -Path build\dist\Mapmise -DestinationPath "build\installers\Mapmise-$env:VERSION-windows-x64-portable.zip"
+
+      - name: Package (macOS disk image)
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p build/dmg && cp -R build/dist/Mapmise.app build/dmg/ && ln -s /Applications build/dmg/Applications
+          hdiutil create -volname "Mapmise" -srcfolder build/dmg -format UDZO -ov "build/installers/Mapmise-$VERSION-${{ matrix.name }}.dmg"
+
+      - name: Package (Linux AppImage + tarball)
+        if: runner.os == 'Linux'
+        run: |
+          A=build/Mapmise.AppDir
+          mkdir -p $A/usr/lib/mapmise
+          cp -R build/dist/Mapmise/. $A/usr/lib/mapmise/
+          cp packaging/linux/AppRun packaging/linux/mapmise.desktop $A/
+          cp packaging/icon.png $A/mapmise.png && cp packaging/icon.png $A/.DirIcon
+          curl -fsSL -o build/appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x build/appimagetool
+          APPIMAGE_EXTRACT_AND_RUN=1 ARCH=x86_64 build/appimagetool $A "build/installers/Mapmise-$VERSION-linux-x64.AppImage"
+          tar -C build/dist -czf "build/installers/Mapmise-$VERSION-linux-x64.tar.gz" Mapmise
+          APPIMAGE_EXTRACT_AND_RUN=1 "build/installers/Mapmise-$VERSION-linux-x64.AppImage" cli --version
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: build/installers/*
+          if-no-files-found: error
+
+  python-package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: python -m pip install build && python -m build
+      - uses: actions/upload-artifact@v4
+        with: {name: python-package, path: dist/*}
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [desktop, python-package]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: {path: out, merge-multiple: true}
+      - run: cd out && sha256sum * > SHA256SUMS.txt && ls -la
+      - uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          prerelease: true
+          name: Mapmise ${{ github.ref_name }}
+          body_path: docs/releases/${{ github.ref_name }}.md
+          files: out/*

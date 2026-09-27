@@ -6,16 +6,16 @@ from pathlib import Path
 import numpy as np
 import yaml
 
-from geofetch.ai import embed
-from geofetch.registry import load_ask_rules
+from mapmise.ai import embed
+from mapmise.registry import load_ask_rules
 
 rules = load_ask_rules()
-cases = yaml.safe_load(Path("tests/fixtures/asks_eval.yaml").read_text())
+cases = yaml.safe_load(Path("tests/fixtures/asks_eval.yaml").read_text(encoding="utf-8"))
 ex_rule, ex_text = [], []
 for r in rules:
     for e in r.examples:
         ex_rule.append(r.id); ex_text.append(e)
-from geofetch.ai.understand import OFF_TOPIC
+from mapmise.ai.understand import OFF_TOPIC
 E = embed(ex_text)
 N = embed(list(OFF_TOPIC))
 Q = embed([c["text"] for c in cases])

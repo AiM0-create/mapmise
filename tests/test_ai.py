@@ -6,8 +6,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from geofetch import ai
-from geofetch.resolver import parse_ask
+from mapmise import ai
+from mapmise.resolver import parse_ask
 
 pytestmark = pytest.mark.skipif(not ai.available(), reason="built-in model or runtime not installed")
 ROOT = Path(__file__).resolve().parent.parent

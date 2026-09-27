@@ -6,15 +6,21 @@ on:
 
 jobs:
   offline:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
-        python: ["3.12", "3.13"]
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ["3.12"]
+        include:
+          - {os: ubuntu-latest, python: "3.13"}
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
-      - run: uv venv --python ${{ matrix.python }} && uv pip install -e ".[dev]"
-      - run: .venv/bin/python -m pytest -q
+      - uses: actions/setup-python@v5
+        with: {python-version: "${{ matrix.python }}"}
+      - run: python -m pip install -e ".[dev]"
+      - run: python -m pytest -q
+      - run: mapmise selftest
 
   registry:
     # live checks of every source; informative on pull requests that touch the registry
@@ -22,6 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
-      - run: uv venv --python 3.12 && uv pip install -e .
-      - run: .venv/bin/geofetch sources --check
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: python -m pip install -e .
+      - run: mapmise sources --check
