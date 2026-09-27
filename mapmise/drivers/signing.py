@@ -110,6 +110,15 @@ def earthdata_resolve(href: str, client: httpx.Client | None = None) -> tuple[st
     return final, size
 
 
+_URL_QUERY = __import__("re").compile(r"(https?://[^\s'\"?]+)\?[^\s'\"]*")
+
+
+def redact(text: str) -> str:
+    """Remove query strings from any URL in a message: signed links carry temporary credentials (and, for NASA,
+    the user's Earthdata username), so errors are recorded and shown with the address only."""
+    return _URL_QUERY.sub(r"\1?…", text)
+
+
 _pc_sign = sign
 
 

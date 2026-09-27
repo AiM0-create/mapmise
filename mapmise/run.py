@@ -15,7 +15,7 @@ from shapely.geometry import shape
 from mapmise.catalog import COG_TYPE, GPKG_TYPE, Catalog
 from mapmise.drivers import http as http_driver
 from mapmise.drivers import overpass as overpass_driver
-from mapmise.drivers.signing import sign
+from mapmise.drivers.signing import redact, sign
 from mapmise.geo import shared_cache
 from mapmise.library import Library
 from mapmise.project import Project
@@ -162,7 +162,7 @@ def execute(project: Project, plan: dict, threads: int = 12, progress: Callable[
                                         "bytes": assets_done[key]["size"], "sha256": assets_done[key]["sha256"], "seconds": round(assets_done[key]["seconds"], 1)})
             except Exception as ex:  # noqa: BLE001 — record and continue; the plan shows what failed
                 failed += 1
-                _record(project, plan, {"item": e["item_id"], "asset": key, "status": "failed", "error": str(ex)[:300]})
+                _record(project, plan, {"item": e["item_id"], "asset": key, "status": "failed", "error": redact(str(ex))[:300]})
         if assets_done:
             geom = item_geoms.get(e["item_id"], aoi.geometry).intersection(aoi.geometry)
             try:
@@ -174,7 +174,7 @@ def execute(project: Project, plan: dict, threads: int = 12, progress: Callable[
                                    cover=geom, bytes_=v["size"], sha256=v["sha256"], source_href=v.get("source_href"))
             except Exception as ex:  # noqa: BLE001 — files are on disk; record the problem and keep going
                 failed += 1
-                _record(project, plan, {"item": e["item_id"], "asset": "*", "status": "failed", "error": f"catalogue entry: {ex}"[:300]})
+                _record(project, plan, {"item": e["item_id"], "asset": "*", "status": "failed", "error": redact(f"catalogue entry: {ex}")[:300]})
     plan["execution"]["finished"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
     plan["status"] = "complete" if failed == 0 else "partial"
     project.save_plan(plan["id"], plan)

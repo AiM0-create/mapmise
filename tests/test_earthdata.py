@@ -92,3 +92,11 @@ def test_plans_explain_what_a_token_would_add(monkeypatch):
     monkeypatch.setattr("mapmise.auth.token", lambda: "t")
     [r] = resolve_needs([need], bbox, start, end, "IND")
     assert r.chosen.id == "opera-dswx-hls" and r.unmet_reason is None
+
+
+def test_signed_links_are_redacted_from_recorded_errors():
+    msg = ("RasterioIOError: '/vsicurl/https://d1nklfio7vscoe.cloudfront.net/lp-prod-protected/B04.tif?"
+           "A-userid=someone&Expires=1&Signature=abc&Key-Pair-Id=K' not recognized")
+    out = signing.redact(msg)
+    assert "someone" not in out and "Signature" not in out
+    assert "https://d1nklfio7vscoe.cloudfront.net/lp-prod-protected/B04.tif?…" in out

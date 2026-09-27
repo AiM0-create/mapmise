@@ -144,6 +144,11 @@ def _prepare(body: dict) -> dict:
             "plans": [_plan_row(pl, r["alternatives"]) for pl in r["plans"]], "library_here": _library_here(project)}
 
 
+def _redact(text: str) -> str:
+    from mapmise.drivers.signing import redact
+    return redact(text)
+
+
 def _start_job(body: dict) -> dict:
     project = Project.load(Path(body["project"]))
     job = {"id": uuid.uuid4().hex[:12], "project": str(project.root), "plan_ids": list(body["plan_ids"]), "messages": [], "done": False}
@@ -153,9 +158,10 @@ def _start_job(body: dict) -> dict:
     def work():
         try:
             job["result"] = engine.run(project, body["request_id"], job["plan_ids"], int(body.get("threads", 12)),
-                                       progress=lambda ev: job["messages"].append(f"{ev['source']}: {ev['message'] if ev['message'] != 'done' else 'finished'}"))
+                                       progress=lambda ev: job["messages"].append(_redact(f"{ev['source']}: {ev['message'] if ev['message'] != 'done' else 'finished'}")))
         except Exception as e:  # noqa: BLE001 — surfaced to the page
-            job["error"] = f"{type(e).__name__}: {e}"
+            from mapmise.drivers.signing import redact
+            job["error"] = redact(f"{type(e).__name__}: {e}")
             traceback.print_exc()
         finally:
             job["done"] = True
