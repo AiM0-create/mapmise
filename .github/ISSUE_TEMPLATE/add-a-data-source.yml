@@ -1,0 +1,26 @@
+name: Add a data source
+description: Propose an open dataset for the registry
+labels: [registry]
+body:
+  - type: input
+    id: dataset
+    attributes: {label: Dataset, description: Name and provider}
+    validations: {required: true}
+  - type: input
+    id: docs
+    attributes: {label: Provider documentation, description: Link to the provider's own page (not another tool's catalogue)}
+    validations: {required: true}
+  - type: textarea
+    id: why
+    attributes: {label: Which analyses need it?, description: e.g. "soil moisture for drought monitoring"}
+    validations: {required: true}
+  - type: textarea
+    id: access
+    attributes: {label: How is it accessed?, description: "STAC collection, URL pattern, API — and does it need a login?"}
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before opening a pull request
+      options:
+        - label: I wrote the entry from the provider's documentation
+        - label: "`geofetch sources --check <id>` passes"

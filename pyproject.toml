@@ -43,7 +43,7 @@ build-backend = "hatchling.build"
 packages = ["geofetch"]
 
 [tool.hatch.build.targets.sdist]
-include = ["geofetch", "tests", "docs", "README.md", "LICENSE", "CHANGELOG.md", "CONTRIBUTING.md"]
+include = ["geofetch", "tests", "docs", "experiments", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md", "CHANGELOG.md", "CONTRIBUTING.md"]
 
 [tool.pytest.ini_options]
 filterwarnings = ["ignore::DeprecationWarning", "ignore::FutureWarning"]

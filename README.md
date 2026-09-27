@@ -54,11 +54,18 @@ Plenty of excellent tools give you *access* to data: [EODAG](https://github.com/
 
 ## Install
 
-Python ≥ 3.12. The alpha is installed from source:
+Python ≥ 3.12. Download the wheel from the [latest release](../../releases) and install it:
 
 ```bash
-git clone <this repository> geofetch && cd geofetch
-uv venv --python 3.12 .venv && uv pip install -e .      # or: python -m venv .venv && .venv/bin/pip install -e .
+pip install geofetch-0.1.0a1-py3-none-any.whl
+geofetch gui
+```
+
+Or from source:
+
+```bash
+git clone https://github.com/GITHUB_USER/geofetch.git && cd geofetch
+python -m venv .venv && .venv/bin/pip install -e ".[dev]"
 .venv/bin/geofetch --version
 ```
 
@@ -208,6 +215,9 @@ Rasters are reprojected with nearest-neighbour resampling, so every output value
 - "Expected clear coverage" is estimated from scene-level cloud percentages, not pixel masks.
 
 ## Licence and data attribution
+
+Bundled third-party components (the AI model, Leaflet) are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
 
 Code: Apache-2.0 ([LICENSE](LICENSE)). Data keeps its own licence — each source's licence is recorded in the registry, in every catalogue item and in `REPORT.md`. Boundaries geocoded from place names are © OpenStreetMap contributors (ODbL).
 

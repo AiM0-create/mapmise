@@ -1,0 +1,17 @@
+name: Something went wrong
+description: A plan, a download or the app did not do what you expected
+body:
+  - type: textarea
+    id: ask
+    attributes: {label: What did you ask?, description: The exact sentence and any options}
+    validations: {required: true}
+  - type: textarea
+    id: happened
+    attributes: {label: What happened, and what did you expect?}
+    validations: {required: true}
+  - type: textarea
+    id: output
+    attributes: {label: Output, description: "Paste the plan table or error. `REPORT.md` and `requests/*.json` from the project help too.", render: text}
+  - type: input
+    id: version
+    attributes: {label: Version, description: "`geofetch --version`, operating system, Python version"}

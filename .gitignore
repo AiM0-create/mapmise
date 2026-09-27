@@ -6,3 +6,4 @@ experiments/out/
 *.tif
 *.aux.xml
 dist/
+.claude/
