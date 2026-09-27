@@ -69,7 +69,7 @@ Nothing is downloaded until the plan has been reviewed and approved.
 ### Desktop application
 
 Download the installer for your system from the
-[latest release](https://github.com/AiM0-create/mapmise/releases/latest).
+[releases page](https://github.com/AiM0-create/mapmise/releases).
 
 | System | File | Installation |
 |---|---|---|
