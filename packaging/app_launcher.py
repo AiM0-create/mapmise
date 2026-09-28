@@ -47,9 +47,8 @@ def main() -> None:
         _bring_existing_forward()
         hard_exit(0)
     from mapmise.gui import window as win
-    if not win.available():  # no web view on this system: the browser instead
-        from mapmise.cli import run
-        run(["gui", "--browser"])
+    if not win.available():  # no web view on this system (typically Linux without WebKitGTK): the browser instead
+        _browser(smoke)
         return
     result = {"code": 0}
 
@@ -65,11 +64,34 @@ def main() -> None:
         mod = sys.modules.get("mapmise.gui.server")
         return mod.running_jobs() if mod else 0
 
-    win.run_with_splash(start_app, jobs, on_closed=lambda: None)
+    try:
+        win.run_with_splash(start_app, jobs, on_closed=lambda: None)
+    except Exception as e:  # noqa: BLE001 — the window could not open after all: never leave the user with nothing
+        print(f"the app window could not open ({type(e).__name__}: {e}); opening in the browser instead", flush=True)
+        if "mapmise.gui.server" not in sys.modules:
+            _browser(smoke)
+            return
     mod = sys.modules.get("mapmise.gui.server")
     if mod:
         mod.stop_background()
     hard_exit(result["code"])
+
+
+def _browser(smoke: bool) -> None:
+    """Open the app in the default browser. For the release check: start, serve the page once, stop."""
+    if not smoke:
+        from mapmise.cli import run
+        run(["gui", "--browser"])
+        return
+    import urllib.request
+    from mapmise.gui import server
+    from mapmise.proc import hard_exit
+    url = server.start_in_background(native=False)
+    with urllib.request.urlopen(url, timeout=30) as r:
+        ok = r.status == 200 and b"Mapmise" in r.read()
+    print(f"smoke test (desktop app, browser fallback): page served={ok}", flush=True)
+    server.stop_background()
+    hard_exit(0 if ok else 1)
 
 
 def _smoke(url: str, result: dict) -> None:

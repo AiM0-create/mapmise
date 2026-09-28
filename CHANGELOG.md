@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0a5
+
+- Linux: starting the AppImage from the applications menu or a double-click crashed in 0.1.0a4 when the system has
+  no web view for the app's own window. Mapmise now checks for one first and otherwise opens in the browser, and
+  falls back to the browser if a window cannot open for any other reason. The Linux release build now tests this.
+
 ## 0.1.0a4
 
 From the first real-world test on Windows:

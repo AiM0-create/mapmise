@@ -498,23 +498,23 @@ def _smoke_check(window) -> None:
 _BACKGROUND: dict = {}
 
 
-def start_in_background(workspace: str | None = None) -> str:
-    """Start the local server in a background thread for the desktop app's own window; returns its URL."""
+def start_in_background(workspace: str | None = None, native: bool = True) -> str:
+    """Start the local server in a background thread (for the desktop app's own window); returns its URL."""
     global WORKSPACE, NATIVE
     if workspace:
         WORKSPACE = Path(workspace).expanduser().resolve()
-    NATIVE = True
+    NATIVE = native
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     url = f"http://127.0.0.1:{httpd.server_address[1]}/"
     rec = _running_file()
     try:
         rec.parent.mkdir(parents=True, exist_ok=True)
-        rec.write_text(json.dumps({"url": url, "token": TOKEN, "mode": "window"}), encoding="utf-8")
+        rec.write_text(json.dumps({"url": url, "token": TOKEN, "mode": "window" if native else "browser"}), encoding="utf-8")
     except OSError:
         rec = None
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     _BACKGROUND.update(httpd=httpd, rec=rec)
-    print(f"mapmise running in its own window ({url})", flush=True)
+    print(f"mapmise running {'in its own window' if native else 'for the browser'} ({url})", flush=True)
     return url
 
 

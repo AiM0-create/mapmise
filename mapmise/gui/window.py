@@ -20,11 +20,30 @@ class WindowUnavailable(RuntimeError):
 
 
 def available() -> bool:
+    """True if this system can show the app's own window: pywebview is installed and, on Linux, a web view
+    backend (WebKitGTK through PyGObject, or Qt) is importable. Windows and macOS always have one."""
     try:
         import webview  # noqa: F401
-        return True
     except Exception:  # noqa: BLE001 — any import problem means no window
         return False
+    if sys.platform.startswith("linux"):
+        try:
+            import gi
+            for v in ("4.1", "4.0"):
+                try:
+                    gi.require_version("WebKit2", v)
+                    from gi.repository import WebKit2  # noqa: F401
+                    return True
+                except (ValueError, ImportError):
+                    continue
+        except ImportError:
+            pass
+        try:
+            import qtpy  # noqa: F401
+            return True
+        except ImportError:
+            return False
+    return True
 
 
 def open_window(url: str, running_jobs: Callable[[], int], on_closed: Callable[[], None],

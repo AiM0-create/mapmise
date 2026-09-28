@@ -115,6 +115,9 @@ jobs:
           APPIMAGE_EXTRACT_AND_RUN=1 ARCH=x86_64 build/appimagetool $A "build/installers/Mapmise-$VERSION-linux-x64.AppImage"
           tar -C build/dist -czf "build/installers/Mapmise-$VERSION-linux-x64.tar.gz" Mapmise
           APPIMAGE_EXTRACT_AND_RUN=1 "build/installers/Mapmise-$VERSION-linux-x64.AppImage" cli --version
+          # a double-click start on a Linux desktop without a web view must fall back to the browser, not crash
+          APPIMAGE_EXTRACT_AND_RUN=1 timeout 120 "build/installers/Mapmise-$VERSION-linux-x64.AppImage" --smoke-test
+          tail -5 "$HOME/.local/share/mapmise/mapmise.log" || true
 
       - uses: actions/upload-artifact@v4
         with:

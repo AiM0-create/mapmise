@@ -105,7 +105,7 @@ To verify an installation:
 For command-line use and scripting, with Python 3.12 or later:
 
 ```bash
-pip install mapmise-0.1.0a4-py3-none-any.whl pywebview   # from the release page; pywebview adds the app window
+pip install mapmise-0.1.0a5-py3-none-any.whl pywebview   # from the release page; pywebview adds the app window
 mapmise selftest
 ```
 
