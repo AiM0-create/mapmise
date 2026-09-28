@@ -386,8 +386,11 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def _running_file() -> Path:
+    """Where a running Mapmise records its address. The desktop app keeps its own record (MAPMISE_RECORD), so a
+    `mapmise gui` started from a terminal can never overwrite the one a second double-click relies on."""
+    import os
     from mapmise.geo import user_dir
-    return user_dir("data") / "running.json"
+    return user_dir("data") / os.environ.get("MAPMISE_RECORD", "running.json")
 
 
 def _running_jobs() -> int:

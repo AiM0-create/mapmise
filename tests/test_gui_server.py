@@ -110,3 +110,10 @@ def test_recipe_is_saved_into_the_project(running, tmp_path):
 
 def test_show_without_a_window_reports_false(running):
     assert _post(running + "/api/show", {})["ok"] is False
+
+
+def test_desktop_app_keeps_its_own_running_record(monkeypatch):
+    monkeypatch.delenv("MAPMISE_RECORD", raising=False)
+    assert server._running_file().name == "running.json"
+    monkeypatch.setenv("MAPMISE_RECORD", "app-running.json")
+    assert server._running_file().name == "app-running.json"

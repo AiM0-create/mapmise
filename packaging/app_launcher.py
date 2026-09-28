@@ -18,23 +18,36 @@ def _log_to_file() -> None:
         sys.stdout = sys.stderr = open(d / "mapmise.log", "a", encoding="utf-8", buffering=1)  # noqa: SIM115
 
 
+RECORD = "app-running.json"  # the desktop app's own record of where it runs (see gui.server._running_file)
+
+
 def _bring_existing_forward() -> None:
-    """Another copy holds the claim: wait for it to finish starting (up to two minutes), then show its window."""
+    """Another copy holds the claim: wait for it to finish starting (up to two minutes), then show it — its window
+    brought to the front, or, when it runs in the browser, its page opened again."""
     import json
     import urllib.request
-    rec_file = user_dir("data") / "running.json"
+    import webbrowser
+    rec_file = user_dir("data") / RECORD
     for _ in range(120):
         try:
             rec = json.loads(rec_file.read_text(encoding="utf-8"))
+            if rec.get("mode") == "browser":
+                with urllib.request.urlopen(rec["url"] + "static/app.css", timeout=3):
+                    pass
+                webbrowser.open(rec["url"])
+                return
             req = urllib.request.Request(rec["url"] + "api/show", data=b"{}", method="POST",
                                          headers={"X-Mapmise-Token": rec["token"], "Content-Type": "application/json"})
             with urllib.request.urlopen(req, timeout=3):
                 return
         except Exception:  # noqa: BLE001 — still starting
             time.sleep(1)
+    print("another copy of Mapmise holds the lock but did not answer within two minutes", flush=True)
 
 
 def main() -> None:
+    import os
+    os.environ.setdefault("MAPMISE_RECORD", RECORD)
     _log_to_file()
     from mapmise.proc import claim_single_instance, hard_exit
     args = [a for a in sys.argv[1:] if not a.startswith("-psn_")]  # macOS passes -psn_… when opened from Finder

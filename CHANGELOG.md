@@ -2,6 +2,8 @@
 
 ## 0.1.0a5
 
+- Starting Mapmise again while it runs in the browser (Linux) now reopens its page. The desktop app keeps its own
+  record of where it runs, so a `mapmise gui` started from a terminal can no longer make a second start wait silently.
 - When the question matches no analysis with confidence, Mapmise asks which analysis was meant — the likeliest
   first (for "Expansion of Noida": Urban growth) — instead of stopping with an error. One click plans it; the
   command line offers `--rule`. Understanding now happens before the place is looked up, so an unclear question
