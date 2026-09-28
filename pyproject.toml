@@ -51,7 +51,7 @@ build-backend = "hatchling.build"
 packages = ["mapmise"]
 
 [tool.hatch.build.targets.sdist]
-include = ["mapmise", "tests", "docs", "experiments", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md", "CHANGELOG.md", "CONTRIBUTING.md"]
+include = ["mapmise", "tests", "docs", "experiments", "README.md", "LICENSE", "NOTICE", "TRADEMARKS.md", "THIRD_PARTY_NOTICES.md", "CHANGELOG.md", "CONTRIBUTING.md"]
 
 [tool.pytest.ini_options]
 filterwarnings = ["ignore::DeprecationWarning", "ignore::FutureWarning"]

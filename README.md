@@ -371,7 +371,9 @@ Design rationale and evaluation: [docs/PRODUCT_DISCOVERY.md](docs/PRODUCT_DISCOV
 
 ## Licence and attribution
 
-Mapmise is licensed under the [Apache License 2.0](LICENSE). Bundled third-party components are listed in
+Mapmise is licensed under the [Apache License 2.0](LICENSE). The name **Mapmise** and its logo are trademarks and
+are not covered by that licence; see [TRADEMARKS.md](TRADEMARKS.md). Contributions are accepted under the
+[Contributor Licence Agreement](CLA.md). Bundled third-party components are listed in
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 Mapmise downloads data but does not redistribute it. Each dataset retains its provider's licence, which is recorded

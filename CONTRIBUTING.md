@@ -1,5 +1,10 @@
 # Contributing to mapmise
 
+**Before your first pull request:** contributions are accepted under the [Contributor Licence Agreement](CLA.md).
+You keep your copyright; the agreement lets the project remain open under Apache 2.0 while keeping the option of
+additional licences. Tick the box in the pull-request template to agree. The name and logo are covered separately
+in [TRADEMARKS.md](TRADEMARKS.md).
+
 mapmise's knowledge lives in two YAML files, not in code. Most contributions are one entry in one of them.
 
 | You want to… | Edit | Code needed? |
