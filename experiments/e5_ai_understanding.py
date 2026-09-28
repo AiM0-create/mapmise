@@ -67,3 +67,32 @@ print(f"chosen on tune: threshold={T:.3f} margin={M:.2f} add-to-keywords={A}")
 for split in ("tune", "test"):
     ok, n = evaluate(split, T, M, verbose=(split == "test" or "-v" in sys.argv), t_add=A)
     print(f"{split}: keywords only {kw_only(split)}/{n}  ·  keywords + AI {ok}/{n}\n")
+
+
+# The shipped pipeline end to end — resolver.parse_ask with its real thresholds — with and without place masking
+# (place names in the ask replaced by "the area" before the model reads it).
+import mapmise.resolver as resolver
+from mapmise.resolver import parse_ask
+
+
+def shipped(split, masked):
+    real = resolver.for_model
+    if not masked:
+        resolver.for_model = lambda text, rules: text
+    try:
+        ok = n = 0
+        for c in cases:
+            if c["split"] != split:
+                continue
+            pred = set(parse_ask(c["text"]).matched_rules)
+            allowed = {c["primary"], *c.get("allowed", [])} - {None}
+            ok += (not pred) if c["primary"] is None else (c["primary"] in pred and pred <= allowed)
+            n += 1
+        return ok, n
+    finally:
+        resolver.for_model = real
+
+
+for split in ("tune", "test"):
+    (a, n), (b, _) = shipped(split, False), shipped(split, True)
+    print(f"shipped pipeline, {split}: without place masking {a}/{n}  ·  with place masking {b}/{n}")

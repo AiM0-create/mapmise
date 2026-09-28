@@ -108,15 +108,28 @@ $("opt-aoi").onchange = async (ev) => {
   try { state.aoiUpload = { name: f.name, geojson: JSON.parse(await f.text()) }; }
   catch { setError("ask-error", "That file isn't valid GeoJSON. Choose a .geojson file."); ev.target.value = ""; }
 };
-$("ask-text").addEventListener("input", () => setError("ask-error", ""));
+$("ask-text").addEventListener("input", () => { setError("ask-error", ""); state.rules = []; $("choose").hidden = true; });
 $("ask-text").addEventListener("keydown", (e) => { if (e.key === "Enter") { state.use = {}; state.skip = []; plan(); } });
 $("plan-btn").onclick = () => { state.use = {}; state.skip = []; plan(); };
 document.querySelectorAll("#examples .chip").forEach((c) => (c.onclick = () => { $("ask-text").value = c.textContent; $("ask-text").focus(); }));
 
+function showChoices(c, question) {
+  const chip = (x, cls) => `<button class="chip ${cls}" data-rule="${esc(x.id)}">${esc(x.title)}</button>`;
+  $("choose-text").textContent = c.suggested.length
+    ? `The built-in AI isn't sure what “${question}” is about. Choose the analysis you mean — the most likely come first.`
+    : `Mapmise didn't recognise the analysis in “${question}”. Choose one.`;
+  $("choose-suggested").innerHTML = c.suggested.map((x) => chip(x, "suggested")).join("");
+  $("choose-all").innerHTML = c.all.map((x) => chip(x, "")).join("");
+  $("choose").hidden = false;
+  document.querySelectorAll("#choose [data-rule]").forEach((b) => (b.onclick = () => {
+    $("choose").hidden = true; state.rules = [b.dataset.rule]; plan();
+  }));
+}
+
 async function plan(allowLarge = false) {
   const text = $("ask-text").value.trim();
   if (!text) { setError("ask-error", "Describe what you want to analyse first."); $("ask-text").focus(); return; }
-  setError("ask-error", ""); setError("plan-error", "");
+  setError("ask-error", ""); setError("plan-error", ""); $("choose").hidden = true;
   const btn = $("plan-btn"); btn.disabled = true; btn.textContent = "Planning…";
   const busy = $(state.replan ? "total-sub" : "ask-step");
   if (!state.replan) { $("ask-busy").hidden = false; $("ask-step").textContent = "Starting…"; $("ask-elapsed").textContent = ""; }
@@ -124,7 +137,7 @@ async function plan(allowLarge = false) {
   try {
     const body = { text, place: $("opt-place").value, event: $("opt-event").value, start: $("opt-start").value, end: $("opt-end").value,
       mode: $("opt-mode").value, project: state.prep?.project && state.replan ? state.prep.project : $("opt-project").value,
-      use: state.use, skip: state.skip, allow_large: allowLarge };
+      use: state.use, skip: state.skip, allow_large: allowLarge, rules: state.rules || [] };
     if (state.aoiUpload && !body.project) { body.aoi_geojson = state.aoiUpload.geojson; body.aoi_name = state.aoiUpload.name; }
     const { job } = await api("/api/prepare", body);
     state.planJob = job;
@@ -144,6 +157,7 @@ async function plan(allowLarge = false) {
       return;
     }
     if (s.kind === "cancelled") { setError("ask-error", "Planning was cancelled."); return; }
+    if (s.kind === "choose") { showChoices(s.choices, text); return; }
     if (s.problem) throw new Error(s.problem);
     state.prep = s.result;
     state.prep.plans.forEach((p) => (state.names[p.source] = p.source_name));
@@ -177,9 +191,12 @@ function verdictLine(p, have, lib) {
 function renderPlan() {
   const r = state.prep;
   $("plan-empty").hidden = true; $("plan-body").hidden = false;
-  const placeLine = r.place.split("\n")[0].split(" — ")[0].replace(/\s*\((existing project|[^)]*)\)\s*$/, "");
+  let placeLine = r.place.split("\n")[0];
+  if (placeLine.includes(" → ")) placeLine = placeLine.split(" → ").pop();  // “Noida” → Noida, Dadri, … (lookup trail)
+  placeLine = placeLine.split(" — ")[0].replace(/\s*\([^)]*\)\s*$/, "").trim();
   const placeShort = placeLine.split(",")[0];
-  $("plan-title").textContent = r.rules.length ? `${cap(r.rules.join(" and ").replace(/_/g, " "))} in ${placeShort}` : `Data for ${placeShort}`;
+  const T = (id) => (r.rule_titles && r.rule_titles[id]) || cap(id.replace(/_/g, " "));
+  $("plan-title").textContent = r.rules.length ? `${r.rules.map((id, i) => (i ? T(id).toLowerCase() : T(id))).join(" and ")} in ${placeShort}` : `Data for ${placeShort}`;
   $("plan-sub").textContent = `${fmtDate(r.start)} – ${fmtDate(r.end)} · ${km2(r.area_km2)} · ${r.plans.length} datasets`;
 
   const how = (id) => (r.how[id] === "keyword" ? "a word in your question" : r.how[id].replace(/^meaning: /, "understood by meaning: "));
@@ -187,10 +204,10 @@ function renderPlan() {
     <div class="row"><div class="grow">Place</div><div class="value">${esc(placeLine)}</div></div>
     <div class="row"><div class="grow">Area</div><div class="value num">${km2(r.area_km2)}${r.country ? ` · ${esc(r.country)}` : ""}</div></div>
     <div class="row"><div class="grow">Period</div><div class="value num">${esc(fmtDate(r.start))} – ${esc(fmtDate(r.end))}</div></div>
-    <div class="row"><div class="grow">Analysis</div><div class="value">${r.rules.map((id) => esc(cap(id.replace(/_/g, " ")))).join(", ") || "—"}</div></div>
+    <div class="row"><div class="grow">Analysis</div><div class="value">${r.rules.map((id) => esc(T(id))).join(", ") || "—"}</div></div>
     <div class="row"><div class="grow">Projection</div><div class="value num">EPSG:${r.epsg}</div></div>`;
   $("understood-notes").innerHTML = [
-    `<p class="footnote understood-note">${r.rules.map((id) => `<b>${esc(cap(id.replace(/_/g, " ")))}</b> — ${esc(how(id))}.`).join(" ")} ${r.ai !== "on" ? `Built-in AI ${esc(r.ai)}.` : ""}</p>`,
+    `<p class="footnote understood-note">${r.rules.map((id) => `<b>${esc(T(id))}</b> — ${esc(how(id))}.`).join(" ")} ${r.ai === "unavailable" ? "Built-in AI unavailable." : ""}</p>`,
     `<p class="footnote understood-note">Period ${esc(r.period_source)}.</p>`,
     r.event_note ? `<p class="footnote understood-note">${esc(r.event_note)}</p>` : "",
     r.library_here.length ? `<p class="footnote understood-note">Already in your library here: ${r.library_here.map((g) => `${esc(state.names[g.source] || g.source)} (${g.files} files)`).join(", ")}.</p>` : "",

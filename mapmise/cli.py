@@ -91,6 +91,13 @@ def cmd_ask(a: argparse.Namespace) -> int:
     from mapmise import engine
     try:
         r = engine.prepare(a.text, a)
+    except engine.NeedsChoice as e:
+        print(str(e))
+        print("\nRun again with the analysis you mean, for example:")
+        for x in (e.suggestions or e.all[:3]):
+            print(f'  mapmise ask "{a.text}" --rule {x["id"]}      # {x["title"]}')
+        print("All analyses: " + ", ".join(f"{x['id']} ({x['title']})" for x in e.all))
+        return 2
     except AskError as e:
         raise SystemExit(str(e))
     print(f"understood:\n  place   {r['place']}\n          {r['area_km2']:,.0f} km², {r['country'] or 'country unknown'}, project CRS EPSG:{r['epsg']}"
@@ -379,6 +386,7 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--dry-run", action="store_true", help="plan only"); s.add_argument("--yes", "-y", action="store_true")
     s.add_argument("--threads", type=int, default=12)
     s.add_argument("--no-ai", action="store_true", help="keyword rules only; do not use the built-in model")
+    s.add_argument("--rule", dest="rules", action="append", metavar="ID", help="the analysis you mean, e.g. urban (see: mapmise rules)")
     s.add_argument("--allow-large-area", dest="allow_large", action="store_true", help="plan areas larger than 50,000 km² (slow; imagery is skipped above 100,000 km²)")
     s.set_defaults(fn=cmd_ask)
 

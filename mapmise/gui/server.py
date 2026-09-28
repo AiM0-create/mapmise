@@ -130,7 +130,8 @@ class _Cancelled(Exception):
 
 
 def _prepare(body: dict, progress=None) -> dict:
-    opts = engine.Options(workspace=str(WORKSPACE), allow_large=bool(body.get("allow_large")))
+    opts = engine.Options(workspace=str(WORKSPACE), allow_large=bool(body.get("allow_large")),
+                          rules=[str(r) for r in body.get("rules") or []])
     for k in ("project", "place", "start", "end", "event"):
         if body.get(k):
             setattr(opts, k, body[k])
@@ -153,7 +154,10 @@ def _prepare(body: dict, progress=None) -> dict:
             notes.append(msg)
     r = engine.prepare(body["text"], opts, log=log)
     project = Project.load(Path(r["project"]))
+    from mapmise.registry import load_ask_rules
+    titles = {x.id: x.label for x in load_ask_rules()}
     return {**{k: v for k, v in r.items() if k != "plans"}, "notes": notes, "aoi": _aoi_geojson(project),
+            "rule_titles": {rid: titles.get(rid, rid) for rid in r["rules"]},
             "plans": [_plan_row(pl, r["alternatives"]) for pl in r["plans"]], "library_here": _library_here(project)}
 
 
@@ -181,6 +185,8 @@ def _start_prepare(body: dict) -> dict:
             job["result"] = _prepare(body, progress)
         except _Cancelled:
             job["error"], job["kind"] = "Planning was cancelled.", "cancelled"
+        except engine.NeedsChoice as e:
+            job["error"], job["kind"], job["choices"] = str(e), "choose", {"suggested": e.suggestions, "all": e.all}
         except engine.LargeArea as e:
             job["error"], job["kind"], job["area"] = str(e), "large", {"name": e.name, "km2": round(e.area_km2)}
         except engine.AskError as e:
@@ -199,7 +205,7 @@ def _prepare_status(job_id: str) -> dict:
     job = _plans_in_progress[job_id]
     out = {"done": job["done"], "step": job["messages"][-1] if job["messages"] else "Starting…",
            "seconds": round(_t.time() - job["started"])}
-    for k in ("result", "kind", "area"):
+    for k in ("result", "kind", "area", "choices"):
         if k in job:
             out[k] = job[k]
     if "error" in job:  # "problem", not "error": the page treats an "error" field as a failed request

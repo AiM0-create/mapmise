@@ -34,6 +34,19 @@ LARGE_AREA_KM2 = 50_000        # above this, planning needs explicit confirmatio
 SCENE_AREA_LIMIT_KM2 = 100_000  # above this, scene-by-scene imagery (optical, radar) is not planned at all
 
 
+class NeedsChoice(AskError):
+    """The question matched no analysis with confidence; the user picks one (suggestions first)."""
+
+    def __init__(self, text: str, suggestions: list[str]):
+        from mapmise.registry import load_ask_rules
+        rules = {r.id: r.label for r in load_ask_rules()}
+        self.suggestions = [{"id": s, "title": rules[s]} for s in suggestions if s in rules]
+        self.all = [{"id": k, "title": v} for k, v in sorted(rules.items(), key=lambda kv: kv[1])]
+        hint = f" Did you mean {', '.join(x['title'].lower() for x in self.suggestions)}?" if self.suggestions else ""
+        super().__init__(f"Mapmise isn't sure which analysis “{text}” is about.{hint} Choose one, or add a word such "
+                         "as flood, drought, urban, forest, rainfall, heat or soil.")
+
+
 class LargeArea(AskError):
     """The area is large enough that planning must be confirmed first."""
 
@@ -67,6 +80,7 @@ class Options:
     workspace: str | None = None
     no_ai: bool = False
     allow_large: bool = False  # plan areas above LARGE_AREA_KM2
+    rules: list[str] = field(default_factory=list)  # analyses chosen by the user (skips understanding)
 
 
 def _gb(n: int) -> str:
@@ -373,15 +387,18 @@ def prepare(text: str, a, log: Callable[[str], None] = print) -> dict:
     """Understand the ask, open or create the project, resolve needs, build and save plans and the request.
     Nothing is downloaded. Raises AskError for problems the user can fix."""
     period = parse_period(text)
+    # understand the analysis first: an unclear question costs no geocoding and creates no project folder
+    try:
+        ask = parse_ask(text, use_ai=not getattr(a, "no_ai", False), rules_chosen=list(getattr(a, "rules", None) or []) or None)
+    except ValueError as e:
+        raise AskError(str(e))
+    if not ask.needs:
+        raise NeedsChoice(text, ask.suggestions)
     p, where = _open_or_create_project(a, text, period, log)
     _ensure_country(p, log)
     start, end = _request_period(a, period, p)
     existing = "existing project" in where
     period_source = ("flags" if (a.start or a.end) else f"“{period.text}”" if period else "project period" if existing else "default: last 12 months")
-    ask = parse_ask(text, use_ai=not getattr(a, "no_ai", False))
-    if not ask.needs:
-        raise AskError(f"No ask rule matched “{text}”. Try words like flood, drought, NDVI, urban, reservoir, slope, road, rainfall, "
-                       "forest, fire, heat or soil — or add a rule to mapmise/registry/asks.yaml.")
     skip = set(a.skip or [])
     needs = [n for n in ask.needs if n.key not in skip]
     overrides = dict(kv.split("=", 1) for kv in (a.use or []))

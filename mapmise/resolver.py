@@ -23,16 +23,38 @@ class Ask:
     event_type: str | None  # set when a matched rule describes a dated event
     how: dict[str, str] = field(default_factory=dict)  # rule id -> "keyword" or "meaning: close to '…' (0.55)"
     ai: str = "off"  # on | off | unavailable
+    suggestions: list[str] = field(default_factory=list)  # when nothing matched: the likeliest rules, best first
 
 
-def parse_ask(text: str, use_ai: bool = True) -> Ask:
+def for_model(text: str, rules) -> str:
+    """The ask with place names replaced by "the area". The small model knows nothing about places ("Expansion of
+    Noida" is ambiguous to it, "Expansion of the area" plainly urban), but the phrase also pulls everyday questions
+    towards geography (E5b), so it is used only to order suggestions, never to decide."""
+    import re as _re
+    from mapmise.understand import parse_period, place_candidates
+    vocab = {w for r in rules for k in r.keywords for w in _re.findall(r"[a-z]{3,}", k.replace("\\b", " ").lower())}
+    out = text
+    for place in place_candidates(text, parse_period(text), vocab):
+        out = _re.sub(_re.escape(place), "the area", out)
+    return out
+
+
+def parse_ask(text: str, use_ai: bool = True, rules_chosen: list[str] | None = None) -> Ask:
     """Rules matched by keywords, plus rules matched by meaning with the shipped model.
     Union of their needs; a duplicate (theme, temporal) keeps the higher priority."""
     import re as _re
     rules = load_ask_rules()
-    kw = [r for r in rules if any(_re.search(k, text, _re.IGNORECASE) for k in r.keywords)]
-    how = {r.id: "keyword" for r in kw}
-    ai_state = "off"
+    if rules_chosen:  # the user picked the analysis (after Mapmise asked which one was meant)
+        unknown = set(rules_chosen) - {r.id for r in rules}
+        if unknown:
+            raise ValueError(f"unknown analysis: {', '.join(sorted(unknown))}")
+        kw, how, ai_state = [], {rid: "chosen by you" for rid in rules_chosen}, "off"
+        use_ai = False
+    else:
+        kw = [r for r in rules if any(_re.search(k, text, _re.IGNORECASE) for k in r.keywords)]
+        how = {r.id: "keyword" for r in kw}
+        ai_state = "off"
+    suggestions: list[str] = []
     if use_ai:
         try:
             from mapmise.ai import AIUnavailable
@@ -40,6 +62,11 @@ def parse_ask(text: str, use_ai: bool = True) -> Ask:
             for m in match(text, rules, {r.id for r in kw}):
                 how[m.rule] = f"meaning: close to “{m.example}” ({m.score:.2f})"
             ai_state = "on"
+            if not how:  # nothing confident: rank the likeliest analyses so the user can choose instead of retyping
+                from mapmise.ai.understand import ranked
+                raw, masked = dict(ranked(text, rules)), dict(ranked(for_model(text, rules), rules))
+                order = sorted(raw, key=lambda rid: -max(raw[rid], masked.get(rid, -1.0)))
+                suggestions = order[:3]
         except AIUnavailable:
             ai_state = "unavailable"
     chosen = [r for r in rules if r.id in how]
@@ -52,7 +79,7 @@ def parse_ask(text: str, use_ai: bool = True) -> Ask:
             if cur is None or _PRIORITY_RANK[n.priority] < _PRIORITY_RANK[cur.priority]:
                 needs[n.key] = n
     ordered = sorted(needs.values(), key=lambda n: (_PRIORITY_RANK[n.priority], n.theme))
-    return Ask(text, ordered, [r.id for r in chosen], event_type, how, ai_state)
+    return Ask(text, ordered, [r.id for r in chosen], event_type, how, ai_state, suggestions)
 
 
 @dataclass

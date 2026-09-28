@@ -122,3 +122,28 @@ Found while testing the full ask: place names that exist only as points in OpenS
 | Hiriyur taluk inside Chitradurga district (full-resolution OSM boundaries) | 0 MB transferred, 6 s; district took 1 min 51 s for 0.36 GB |
 | Same taluk inside a district geocoded with simplified boundaries | not reused: 0.009 km² of the taluk fell outside the simplified district. Fixed by requesting full-resolution boundaries (taluk outside district: 0.0 m²) — the exactness check was kept, not loosened |
 | Radar pair for the taluk | not reused, correctly: orbit 165 covers 92 % of the taluk, better than the district's orbit 63. Library items break ties only; they never override quality |
+
+
+## E5b — Place names and the built-in model (2026-09-28)
+
+**Question.** A tester asked "Expansion of Noida" and got no answer: the model scored forest 0.20 and urban 0.18,
+both below its confidence threshold. It knows nothing of places, so would replacing place names help?
+
+**Method.** The shipped pipeline (keyword rules + model, shipped thresholds) on the E5 question set, with place names
+found by the deterministic parser replaced by different words before the model reads the question.
+
+| Replacement | tune | test | "Expansion of Noida" |
+|---|---|---|---|
+| none (shipped) | 15/17 | 16/17 | nothing matched |
+| "the area" | 14/17 | 15/17 | urban |
+| "there", "X", "Springfield" | 14/17 | 16/17 | nothing matched |
+| "the town" | 13/17 | 14/17 | urban |
+
+**Finding.** Masking resolves some short questions ("Expansion of Noida", "Bengaluru has eaten up its lakes…") but
+geographic-sounding replacements pull everyday questions towards geography ("book a train ticket to the area" →
+roads and access), and neutral ones do not help. No replacement beats the shipped pipeline overall.
+
+**Decision.** Keep the model's decisions on the original text. When nothing matches with confidence, Mapmise now asks
+which analysis was meant and offers the likeliest first — ordered by the better of the original and place-masked
+readings, which puts *Urban growth* first for "Expansion of Noida". An unclear question never becomes a dead end, and
+the rule file does not have to anticipate every phrasing.

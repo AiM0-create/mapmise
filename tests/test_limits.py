@@ -42,3 +42,20 @@ def test_only_one_app_copy_can_hold_the_claim(tmp_path):
     other = subprocess.run([sys.executable, "-c", f"from mapmise.proc import claim_single_instance as c; from pathlib import Path; "
                             f"print(c(Path({str(tmp_path)!r})))"], capture_output=True, text=True)
     assert other.stdout.strip() == "False"
+
+
+def test_unclear_questions_ask_which_analysis_before_any_work(tmp_path):
+    opts = engine.Options(workspace=str(tmp_path / "ws"))
+    with pytest.raises(engine.NeedsChoice) as e:
+        engine.prepare("Expansion of Noida", opts, log=lambda m: None)
+    assert e.value.suggestions and e.value.suggestions[0]["id"] == "urban"
+    assert {x["id"] for x in e.value.all} >= {"urban", "flood", "forest"}
+    assert not (tmp_path / "ws").exists()  # no geocoding, no project folder for an unclear question
+
+
+def test_a_chosen_analysis_is_used_as_is():
+    from mapmise.resolver import parse_ask
+    a = parse_ask("Expansion of Noida", rules_chosen=["urban"])
+    assert a.matched_rules == ["urban"] and a.how["urban"] == "chosen by you" and a.needs
+    with pytest.raises(ValueError):
+        parse_ask("anything", rules_chosen=["no-such-analysis"])

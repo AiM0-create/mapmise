@@ -40,6 +40,21 @@ def _index(rules) -> tuple[list[str], list[str], np.ndarray, np.ndarray]:
 _cache: dict[tuple, tuple] = {}
 
 
+def ranked(text: str, rules) -> list[tuple[str, float]]:
+    """Every rule with the ask's similarity to its closest example, best first."""
+    from mapmise.ai import embed
+    key = tuple((r.id, r.examples) for r in rules)
+    if key not in _cache:
+        _cache.clear()
+        _cache[key] = _index(rules)
+    rule_of, _, E, _ = _cache[key]
+    sims = E @ embed([text])[0]
+    best: dict[str, float] = {}
+    for rid, s in zip(rule_of, sims):
+        best[rid] = max(best.get(rid, -1.0), float(s))
+    return sorted(best.items(), key=lambda kv: -kv[1])
+
+
 def match(text: str, rules, keyword_hits: set[str]) -> list[MeaningMatch]:
     """Rules this ask means, beyond (or instead of) its keyword matches. Empty if nothing is close enough,
     or if the ask is closer to everyday non-geospatial requests than to any rule."""

@@ -110,6 +110,14 @@ main { max-width: 1160px; margin: 0 auto; padding: 32px 24px 64px; }
 .chip { padding: 7px 14px; border-radius: 99px; background: var(--surface); box-shadow: 0 0 0 .5px var(--separator); font-size: .84rem; color: var(--label-2); }
 .chip:hover { color: var(--label); }
 .disclosure { text-align: center; margin-top: 10px; }
+.choose { max-width: 780px; margin: 16px auto 0; padding: 16px 18px; border-radius: var(--r-lg); background: var(--surface);
+  box-shadow: var(--shadow); text-align: center; animation: arrive 300ms var(--spring); }
+.choose .chips { margin-top: 12px; }
+.chip.suggested { color: var(--blue); font-weight: 600; }
+.chip.suggested:first-child { background: var(--blue); color: #fff; box-shadow: none; }  /* one accent: the likeliest */
+.chip.suggested:first-child::before { content: "Most likely · "; font-weight: 400; opacity: .85; }
+.choose-all { margin-top: 10px; font-size: .8125rem; color: var(--label-2); }
+.choose-all summary { cursor: pointer; }
 .options { max-width: 780px; margin: 6px auto 0; animation: arrive 300ms var(--spring); }
 .two { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 28px; max-width: 780px; margin: 30px auto 0; }
 .two > :only-child { grid-column: 1 / -1; }

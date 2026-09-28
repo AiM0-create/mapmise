@@ -2,6 +2,10 @@
 
 ## 0.1.0a5
 
+- When the question matches no analysis with confidence, Mapmise asks which analysis was meant — the likeliest
+  first (for "Expansion of Noida": Urban growth) — instead of stopping with an error. One click plans it; the
+  command line offers `--rule`. Understanding now happens before the place is looked up, so an unclear question
+  costs nothing and creates no project folder. Each analysis has a plain title.
 - Linux: starting the AppImage from the applications menu or a double-click crashed in 0.1.0a4 when the system has
   no web view for the app's own window. Mapmise now checks for one first and otherwise opens in the browser, and
   falls back to the browser if a window cannot open for any other reason. The Linux release build now tests this.

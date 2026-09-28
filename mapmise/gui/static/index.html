@@ -36,6 +36,12 @@
       <button id="plan-btn" class="primary">Create plan</button>
     </div>
     <p id="ask-error" class="inline-error" hidden></p>
+    <div id="choose" class="choose" hidden>
+      <p class="headline" id="choose-title">Which analysis do you mean?</p>
+      <p class="footnote" id="choose-text"></p>
+      <div class="chips" id="choose-suggested"></div>
+      <details class="choose-all"><summary>All analyses</summary><div class="chips" id="choose-all"></div></details>
+    </div>
     <div id="ask-busy" class="busy" hidden><span class="spinner" aria-hidden="true"></span><span id="ask-step">Starting…</span><span class="caption num" id="ask-elapsed"></span><button class="plain" id="plan-cancel" style="padding:4px 10px">Cancel</button></div>
     <div class="chips" id="examples">
       <button class="chip">Agricultural drought in Chitradurga during the 2026 monsoon</button>

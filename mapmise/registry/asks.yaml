@@ -5,6 +5,7 @@
 # There is no "flood workflow" or "drought workflow" here — only themes. An LLM could later
 # emit the same needs; the resolver downstream would not change.
 #
+#   title      plain name shown when Mapmise asks which analysis was meant
 #   keywords   regexes, case-insensitive, matched against the ask text
 #   examples   natural phrasings of this kind of ask; the built-in AI matches asks that use none of the
 #              keywords by meaning against these. Add phrasings people actually use — any language the
@@ -16,6 +17,7 @@
 #   needs[].why        shown to the user
 
 - id: flood
+  title: Flooding
   keywords: ["\\bflood", "inundat", "\\bcyclone", "storm surge", "water ?logg"]
   examples:
     - "the river overflowed and villages went under water"
@@ -38,6 +40,7 @@
     - {theme: facilities, temporal: static, priority: optional,    why: "hospitals and schools that may be cut off or used as shelters"}
 
 - id: drought
+  title: Drought
   keywords: ["\\bdrought", "crop (stress|condition|failure)", "monsoon (failure|deficit)", "rain(fall)? deficit", "dry spell"]
   examples:
     - "the monsoon failed and crops are drying up"
@@ -54,6 +57,7 @@
     - {theme: landcover,     temporal: static, priority: recommended, why: "to restrict the analysis to cropland"}
 
 - id: vegetation
+  title: Vegetation and crops
   keywords: ["\\bndvi", "vegetation (index|time ?series|monitoring|change)", "crop (monitoring|phenology|growth|mapping|calendar)", "greenness", "forest (cover|loss|change)"]
   examples:
     - "how green are the fields through the season"
@@ -66,6 +70,7 @@
     - {theme: landcover,  temporal: static, priority: optional, why: "context mask (cropland, tree cover)"}
 
 - id: urban
+  title: Urban growth
   keywords: ["\\burban", "built[- ]?up", "city (growth|expansion|sprawl)", "settlement (growth|expansion)", "urbani[sz]ation", "land use change"]
   examples:
     - "how much has the city grown"
@@ -82,6 +87,7 @@
     - {theme: transport,  temporal: static, priority: optional,    why: "network driving expansion"}
 
 - id: water_bodies
+  title: Lakes, reservoirs and wetlands
   keywords: ["\\b(reservoir|lake|wetland|tank|pond)s?\\b", "surface water", "water (extent|body|bodies|spread|level)"]
   examples:
     - "how full is the lake this year"
@@ -96,6 +102,7 @@
     - {theme: optical, temporal: series, priority: recommended, why: "green/SWIR bands for water indices"}
 
 - id: terrain
+  title: Terrain and slope
   keywords: ["\\b(slope|terrain|elevation|watershed|catchment|hillshade|landslides?|runoff)\\b", "\\bdem\\b"]
   examples:
     - "how steep is the land"
@@ -107,6 +114,7 @@
     - {theme: elevation, temporal: static, priority: required, why: "digital elevation model"}
 
 - id: access
+  title: Roads and access
   keywords: ["\\broad", "accessib", "connectivity", "\\broute", "transport"]
   examples:
     - "how far are villages from the nearest road"
@@ -119,6 +127,7 @@
     - {theme: population, temporal: static, priority: recommended, why: "who is served or cut off"}
 
 - id: boundaries
+  title: Administrative areas
   keywords: ["district", "admin(istrative)? (boundar|unit)", "taluk", "block", "village boundar"]
   examples:
     - "summarise by taluk"
@@ -130,6 +139,7 @@
     - {theme: boundaries, temporal: static, priority: optional, why: "administrative units for aggregation"}
 
 - id: rainfall
+  title: Rainfall
   keywords: ["\\brain(fall|s|y|ed)?\\b", "precipitation", "\\bmonsoon"]
   examples:
     - "how much did it rain this season"
@@ -141,6 +151,7 @@
     - {theme: precipitation, temporal: series, priority: required, why: "rainfall totals over the period"}
 
 - id: forest
+  title: Forest change
   keywords: ["\\bforest", "deforest", "tree cover", "canopy", "logging", "mangrove"]
   examples:
     - "how much forest has been cleared"
@@ -154,6 +165,7 @@
     - {theme: optical,   temporal: series, priority: optional,    why: "imagery to inspect recent change"}
 
 - id: fire
+  title: Fires and burned area
   keywords: ["\\bfires?\\b", "wildfire", "\\bburn", "stubble"]
   examples:
     - "where did the fires burn this year"
@@ -167,6 +179,7 @@
     - {theme: landcover,  temporal: static, priority: recommended, why: "what burned — cropland, forest, grassland"}
 
 - id: heat
+  title: Heat and land temperature
   keywords: ["\\bheat", "temperature", "\\blst\\b", "hot ?spot", "thermal"]
   examples:
     - "which neighbourhoods are the hottest"
@@ -180,6 +193,7 @@
     - {theme: vegetation,  temporal: series, priority: optional,    why: "vegetation cools; NDVI explains much of LST"}
 
 - id: soil
+  title: Soil properties
   keywords: ["\\bsoils?\\b", "erosion", "fertility", "organic carbon", "\\bph\\b"]
   examples:
     - "what is the soil like here"
@@ -193,6 +207,7 @@
     - {theme: landcover, temporal: static, priority: recommended, why: "land use on the soil"}
 
 - id: services
+  title: Health and education services
   keywords: ["hospital", "school", "clinic", "health (care|facilit|access)", "facilit", "service (access|coverage)"]
   examples:
     - "how far do people travel to reach a hospital"
