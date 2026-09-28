@@ -59,3 +59,12 @@ def test_a_chosen_analysis_is_used_as_is():
     assert a.matched_rules == ["urban"] and a.how["urban"] == "chosen by you" and a.needs
     with pytest.raises(ValueError):
         parse_ask("anything", rules_chosen=["no-such-analysis"])
+
+
+def test_change_questions_without_dates_default_to_years_not_months(tmp_path):
+    aoi = _box_file(tmp_path, 77.30, 28.50, 77.35, 28.55)  # ~30 km²
+    opts = engine.Options(aoi=str(aoi), workspace=str(tmp_path / "ws"), rules=["urban"])
+    r = engine.prepare("expansion of this town", opts, log=lambda m: None)
+    from datetime import date
+    assert date.fromisoformat(r["start"]).year <= date.today().year - 10
+    assert "default for urban growth" in r["period_source"]

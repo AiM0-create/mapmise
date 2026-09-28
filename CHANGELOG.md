@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0a6
+
+- Questions about change with no dates now cover a meaningful span: urban growth and forest change the last ten
+  years, lakes and reservoirs the last five, instead of twelve months — too short to see change and before the
+  newest yearly land-cover products. The plan states the default and how to change it.
+
 ## 0.1.0a5
 
 - Starting Mapmise again while it runs in the browser (Linux) now reopens its page. The desktop app keeps its own

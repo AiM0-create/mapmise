@@ -114,6 +114,7 @@ class AskRule:
     event_type: str | None = None
     examples: tuple[str, ...] = ()
     title: str = ""
+    default_years: int | None = None  # period when the question gives no dates (analyses of change)
 
     @property
     def label(self) -> str:
@@ -160,5 +161,5 @@ def load_ask_rules() -> list[AskRule]:
         for k in r["keywords"]:
             re.compile(k)
         rules.append(AskRule(r["id"], tuple(r["keywords"]), tuple(needs), r.get("event_type"), tuple(r.get("examples", [])),
-                             r.get("title", "")))
+                             r.get("title", ""), r.get("default_years")))
     return rules

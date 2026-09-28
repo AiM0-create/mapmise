@@ -394,11 +394,23 @@ def prepare(text: str, a, log: Callable[[str], None] = print) -> dict:
         raise AskError(str(e))
     if not ask.needs:
         raise NeedsChoice(text, ask.suggestions)
+    default_note = None
+    adding_to_existing = bool(a.project and (Path(a.project) / "project.json").exists())
+    if period is None and not (a.start or a.end) and not adding_to_existing:
+        # a question about change with no dates: use the analysis's own span, not twelve months, and say so
+        from mapmise.registry import load_ask_rules
+        spans = {r.id: (r.default_years, r.label) for r in load_ask_rules() if r.id in ask.matched_rules and r.default_years}
+        if spans:
+            years, label = max(spans.values())
+            today = date.today()
+            period = Period(date(today.year - years, 1, 1), today, f"last {years} years")
+            default_note = f"default for {label.lower()}: last {years} years — say a period to change it"
     p, where = _open_or_create_project(a, text, period, log)
     _ensure_country(p, log)
     start, end = _request_period(a, period, p)
     existing = "existing project" in where
-    period_source = ("flags" if (a.start or a.end) else f"“{period.text}”" if period else "project period" if existing else "default: last 12 months")
+    period_source = ("flags" if (a.start or a.end) else default_note if default_note else f"“{period.text}”" if period
+                     else "project period" if existing else "default: last 12 months")
     skip = set(a.skip or [])
     needs = [n for n in ask.needs if n.key not in skip]
     overrides = dict(kv.split("=", 1) for kv in (a.use or []))

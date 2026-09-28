@@ -6,6 +6,7 @@
 # emit the same needs; the resolver downstream would not change.
 #
 #   title      plain name shown when Mapmise asks which analysis was meant
+#   default_years  period used when the question gives no dates (for analyses of change; otherwise 12 months)
 #   keywords   regexes, case-insensitive, matched against the ask text
 #   examples   natural phrasings of this kind of ask; the built-in AI matches asks that use none of the
 #              keywords by meaning against these. Add phrasings people actually use — any language the
@@ -71,6 +72,7 @@
 
 - id: urban
   title: Urban growth
+  default_years: 10          # questions about change need years, not months
   keywords: ["\\burban", "built[- ]?up", "city (growth|expansion|sprawl)", "settlement (growth|expansion)", "urbani[sz]ation", "land use change"]
   examples:
     - "how much has the city grown"
@@ -88,6 +90,7 @@
 
 - id: water_bodies
   title: Lakes, reservoirs and wetlands
+  default_years: 5          # questions about change need years, not months
   keywords: ["\\b(reservoir|lake|wetland|tank|pond)s?\\b", "surface water", "water (extent|body|bodies|spread|level)"]
   examples:
     - "how full is the lake this year"
@@ -152,6 +155,7 @@
 
 - id: forest
   title: Forest change
+  default_years: 10          # questions about change need years, not months
   keywords: ["\\bforest", "deforest", "tree cover", "canopy", "logging", "mangrove"]
   examples:
     - "how much forest has been cleared"
