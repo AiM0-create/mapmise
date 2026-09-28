@@ -161,6 +161,15 @@ def _prepare(body: dict, progress=None) -> dict:
             "plans": [_plan_row(pl, r["alternatives"]) for pl in r["plans"]], "library_here": _library_here(project)}
 
 
+def _about() -> dict:
+    import platform
+    from mapmise.geo import user_dir
+    folder = user_dir("data")
+    folder.mkdir(parents=True, exist_ok=True)
+    return {"version": __version__, "system": f"{platform.system()} {platform.release()} ({platform.machine()})",
+            "window": NATIVE, "log_folder": str(folder)}
+
+
 def _redact(text: str) -> str:
     from mapmise.drivers.signing import redact
     return redact(text)
@@ -284,6 +293,8 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/api/earthdata":
                 from mapmise import auth
                 return self._json(auth.info().to_json())  # never the token itself
+            if u.path == "/api/about":
+                return self._json(_about())
             if u.path == "/api/sources":
                 return self._json({sid: src.name for sid, src in load_sources().items()})
             if u.path == "/api/projects":
@@ -361,6 +372,15 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json(auth.save(str(body.get("token", ""))).to_json())
                 except ValueError as e:
                     return self._json({"error": str(e)}, 400)
+            if u.path == "/api/report-problem":
+                from urllib.parse import urlencode
+                a = _about()
+                webbrowser.open("https://github.com/AiM0-create/mapmise/issues/new?" + urlencode(
+                    {"template": "something-went-wrong.yml", "version": f"Mapmise {a['version']} · {a['system']}"}))
+                return self._json({"ok": True})
+            if u.path == "/api/open-log":
+                _open_folder(Path(_about()["log_folder"]))
+                return self._json({"ok": True})
             if u.path == "/api/show":
                 from mapmise.gui import window as win
                 return self._json({"ok": win.bring_to_front()})

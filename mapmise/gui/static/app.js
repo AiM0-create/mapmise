@@ -429,7 +429,12 @@ async function edRefresh() {
     $("ed-remove").hidden = !i.present || i.source === "environment"; $("ed-check").hidden = !i.present;
   } catch (e) { $("ed-status").textContent = e.message; }
 }
-$("settings-btn").onclick = () => { edMsg(""); $("ed-token").value = ""; $("settings").hidden = false; edRefresh(); };
+$("settings-btn").onclick = () => {
+  edMsg(""); $("ed-token").value = ""; $("settings").hidden = false; edRefresh();
+  api("/api/about").then((a) => { $("about-version").textContent = a.version; $("about-system").textContent = a.system; }).catch(() => {});
+};
+$("report-problem").onclick = () => api("/api/report-problem", {}).catch((e) => edMsg(e.message));
+$("open-log").onclick = () => api("/api/open-log", {}).catch((e) => edMsg(e.message));
 $("settings-close").onclick = () => { $("ed-token").value = ""; $("settings").hidden = true; };
 $("settings").addEventListener("keydown", (e) => { if (e.key === "Escape") $("settings-close").click(); });
 $("ed-save").onclick = async () => {

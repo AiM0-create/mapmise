@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.1.0a7
+
+From an end-to-end test of all fourteen analyses on one area (all planned; ten acquired for real, 186 files, no
+failures):
+
+- Vector layers (OpenStreetMap, geoBoundaries) are now written in the project's projection, like every raster.
+- Every raster records the share of its area holding valid values; files with none — for example MODIS land
+  temperature under monsoon cloud — are listed in the report instead of being delivered silently.
+- When a product exists but is not published for the requested period, the plan names it, gives its span and
+  suggests a period (for example MODIS burned area, which ends in July 2025).
+- Settings → About shows the version and system, with **Report a problem** (a GitHub form with the version filled
+  in) and **Show log**.
+- Name and logo reserved in TRADEMARKS.md; contributions accepted under CLA.md.
+
 ## 0.1.0a6
 
 - Questions about change with no dates now cover a meaningful span: urban growth and forest change the last ten

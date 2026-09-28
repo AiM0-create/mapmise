@@ -117,3 +117,10 @@ def test_desktop_app_keeps_its_own_running_record(monkeypatch):
     assert server._running_file().name == "running.json"
     monkeypatch.setenv("MAPMISE_RECORD", "app-running.json")
     assert server._running_file().name == "app-running.json"
+
+
+def test_about_reports_version_and_system(running):
+    _, body = _get(running + "/api/about", server.TOKEN)
+    a = json.loads(body)
+    from mapmise import __version__
+    assert a["version"] == __version__ and a["system"] and a["log_folder"]
