@@ -34,6 +34,16 @@ LARGE_AREA_KM2 = 50_000        # above this, planning needs explicit confirmatio
 SCENE_AREA_LIMIT_KM2 = 100_000  # above this, scene-by-scene imagery (optical, radar) is not planned at all
 
 
+class NeedsEventDate(AskError):
+    """A before-and-after question (a flood, a fire) with no date: ask when it happened instead of guessing a year."""
+
+    def __init__(self, analysis: str):
+        self.analysis = analysis
+        super().__init__(f"When did it happen? {analysis} needs data from just before and just after the event. Give the "
+                         "event date, name the month in your question (for example “in August 2026”), or continue without "
+                         "a date to use recorded disaster events or the last twelve months.")
+
+
 class NeedsChoice(AskError):
     """The question matched no analysis with confidence; the user picks one (suggestions first)."""
 
@@ -81,6 +91,7 @@ class Options:
     no_ai: bool = False
     allow_large: bool = False  # plan areas above LARGE_AREA_KM2
     rules: list[str] = field(default_factory=list)  # analyses chosen by the user (skips understanding)
+    no_event_date: bool = False  # the user does not know the event date: use recorded events or the period
 
 
 def _gb(n: int) -> str:
@@ -124,7 +135,7 @@ def _build_plans(p: Project, resolutions: list[Resolution], start: date, end: da
             unmet.append((r.need, r.unmet_reason or "no source"))
             continue
         if r.need.temporal == "pair" and event is None:
-            unmet.append((r.need, "needs an event date: re-run with --event YYYY-MM-DD"))
+            unmet.append((r.need, "needs the date of the event: give an event date"))
             continue
         groups.setdefault((r.chosen.id, "pair" if r.need.temporal == "pair" else r.need.temporal), []).append(r.need)
     sources = load_sources()
@@ -273,7 +284,7 @@ def _open_or_create_project(a, text: str, period: Period | None, log: Callable[[
     Large areas are refused before any folder is created unless a.allow_large."""
     if a.project and (Path(a.project) / "project.json").exists():
         if a.place or a.aoi:
-            raise AskError(f"{a.project} already has an AOI; drop --place/--aoi or use a new --project")
+            raise AskError(f"{a.project} already has an area; to use a different place, start a new project")
         p = Project.load(Path(a.project))
         return p, f"{p.meta.name} (existing project)"
     start, end = _request_period(a, period, None)
@@ -289,7 +300,8 @@ def _open_or_create_project(a, text: str, period: Period | None, log: Callable[[
         return Project.init(root, name, text, Path(a.aoi), start, end), f"file {a.aoi}"
     queries = [a.place] if a.place else place_candidates(text, period, _vocabulary())
     if not queries:
-        raise AskError("no place found in the ask; say where (\"… in Chitradurga …\"), or pass --place NAME or --aoi FILE")
+        raise AskError("Mapmise couldn't find a place in your question. Say where — for example “flood in Chitradurga” — "
+                       "or give a place or a boundary file.")
     log(f"Finding {queries[0]}…")
     try:
         place, q = geocode_first(queries, a.pick)
@@ -305,7 +317,7 @@ def _open_or_create_project(a, text: str, period: Period | None, log: Callable[[
                        aoi_attribution="© OpenStreetMap contributors, ODbL 1.0")
     how = f"“{q}” → {place.display_name} ({place.kind}, {place.osm})"
     if len(place.alternatives) > 1:
-        how += "\n          other matches: " + "; ".join(place.alternatives[:4]) + "  (choose with --pick N)"
+        how += "\n          other matches: " + "; ".join(place.alternatives[:4])
     return p, how
 
 
@@ -341,7 +353,7 @@ def _event_for(a, ask, period: Period | None, p: Project, start: date, end: date
     # no exact date known: the stated period is 'after', the same number of days before it is 'before'
     span = max((end - start).days, 1)
     return start, max(a.pre_days, span), span, (f"no exact event date known (GDACS has none near here) — using the stated period {start} → {end} as 'after' "
-                                                f"and the {max(a.pre_days, span)} days before it as 'before'. Pass --event YYYY-MM-DD to be precise")
+                                                f"and the {max(a.pre_days, span)} days before it as 'before'. Give the event date to be precise")
 
 
 
@@ -396,6 +408,16 @@ def prepare(text: str, a, log: Callable[[str], None] = print) -> dict:
         raise NeedsChoice(text, ask.suggestions)
     default_note = None
     adding_to_existing = bool(a.project and (Path(a.project) / "project.json").exists())
+    if (any(n.temporal == "pair" for n in ask.needs) and period is None and not (a.start or a.end or a.event)
+            and not adding_to_existing and not getattr(a, "no_event_date", False)):
+        from mapmise.registry import load_ask_rules
+        labels = [r.label for r in load_ask_rules() if r.id in ask.matched_rules and any(n.temporal == "pair" for n in r.needs)]
+        raise NeedsEventDate(labels[0] if labels else "This analysis")
+    if period is None and a.event and not (a.start or a.end) and not adding_to_existing:
+        # an event date and no period: the period is the event with its before and after windows
+        ev = date.fromisoformat(a.event)
+        period = Period(ev - timedelta(days=a.pre_days), min(ev + timedelta(days=a.post_days), date.today()), "around the event date", event=ev)
+        default_note = f"around the event date {ev.isoformat()} ({a.pre_days} days before to {a.post_days} days after)"
     if period is None and not (a.start or a.end) and not adding_to_existing:
         # a question about change with no dates: use the analysis's own span, not twelve months, and say so
         from mapmise.registry import load_ask_rules

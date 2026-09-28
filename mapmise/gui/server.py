@@ -131,7 +131,7 @@ class _Cancelled(Exception):
 
 def _prepare(body: dict, progress=None) -> dict:
     opts = engine.Options(workspace=str(WORKSPACE), allow_large=bool(body.get("allow_large")),
-                          rules=[str(r) for r in body.get("rules") or []])
+                          rules=[str(r) for r in body.get("rules") or []], no_event_date=bool(body.get("no_event_date")))
     for k in ("project", "place", "start", "end", "event"):
         if body.get(k):
             setattr(opts, k, body[k])
@@ -194,6 +194,8 @@ def _start_prepare(body: dict) -> dict:
             job["result"] = _prepare(body, progress)
         except _Cancelled:
             job["error"], job["kind"] = "Planning was cancelled.", "cancelled"
+        except engine.NeedsEventDate as e:
+            job["error"], job["kind"], job["analysis"] = str(e), "event", e.analysis
         except engine.NeedsChoice as e:
             job["error"], job["kind"], job["choices"] = str(e), "choose", {"suggested": e.suggestions, "all": e.all}
         except engine.LargeArea as e:
@@ -214,7 +216,7 @@ def _prepare_status(job_id: str) -> dict:
     job = _plans_in_progress[job_id]
     out = {"done": job["done"], "step": job["messages"][-1] if job["messages"] else "Starting…",
            "seconds": round(_t.time() - job["started"])}
-    for k in ("result", "kind", "area", "choices"):
+    for k in ("result", "kind", "area", "choices", "analysis"):
         if k in job:
             out[k] = job[k]
     if "error" in job:  # "problem", not "error": the page treats an "error" field as a failed request

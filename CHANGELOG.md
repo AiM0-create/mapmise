@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.0a8
+
+- Place names typed in lower case are understood ("flood in delhi", "drought in chitradurga during the monsoon").
+- A before-and-after question without a date — a flood, for example — asks when it happened instead of spreading
+  "before" and "after" over whole years. With a date, the period is centred on the event. "I don't know the date"
+  keeps the previous behaviour (recorded disaster events, or the last twelve months).
+- Messages no longer mention command-line options in the app.
+
 ## 0.1.0a7
 
 From an end-to-end test of all fourteen analyses on one area (all planned; ten acquired for real, 186 files, no

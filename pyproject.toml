@@ -1,6 +1,6 @@
 [project]
 name = "mapmise"
-version = "0.1.0a7"
+version = "0.1.0a8"
 description = "Say what you want to analyse and where; get the right open geospatial data, clipped, organised and documented, locally."
 readme = "README.md"
 license = "Apache-2.0"

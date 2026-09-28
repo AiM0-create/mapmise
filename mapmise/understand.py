@@ -131,7 +131,37 @@ def place_candidates(text: str, period: Period | None = None, extra_stop: set[st
         # rank: a name after a place preposition first; a capitalised first word of a sentence last
         rank = 0 if prev in _PREPOSITIONS else (2 if not before or before.endswith((".", "!", "?")) else 1)
         found.append((rank, i, cand))
+    if not found:
+        return _lowercase_places(t, stop)
     return [c for _, _, c in sorted(found)]
+
+
+# words that end a place name typed in lower case ("flood in chitradurga during the monsoon")
+_END = {"during", "since", "between", "from", "to", "and", "the", "last", "past", "this", "that", "in", "on", "at",
+        "for", "with", "after", "before", "over", "by", "of", "when", "because", "due", "due", "is", "was", "were",
+        "are", "has", "have", "had", "please", "using", "per", "each", "every", "year", "years", "month", "months",
+        "area", "region", "areas", "happened", "occurred", "help", "me", "analyse", "analyze", "locally"}
+
+
+def _lowercase_places(t: str, stop: set[str]) -> list[str]:
+    """People often type place names in lower case. Take the words after a place preposition, up to the first word
+    that cannot be part of a name. Each candidate is still confirmed by the geocoder."""
+    out: list[str] = []
+    for m in re.finditer(r"\b(?:in|near|at|around|over|across|of|within|for)\s+([a-z][\w'’.-]*(?:\s+[a-z][\w'’.-]*){0,4})",
+                         t, flags=re.IGNORECASE):
+        words = []
+        for w in m[1].split():
+            lw = w.lower().strip(".,;:!?")
+            if words and re.fullmatch(_ADMIN, lw):  # "chitradurga district": the admin word belongs to the name, and ends it
+                words.append(w.strip(".,;:!?"))
+                break
+            if lw in _END or lw in stop or re.fullmatch(r"(19|20)\d{2}", lw):
+                break
+            words.append(w.strip(".,;:!?"))
+        cand = " ".join(words)
+        if cand and cand.lower() not in stop and cand.lower() not in (c.lower() for c in out):
+            out.append(cand.title() if cand.islower() else cand)
+    return out
 
 
 @dataclass
@@ -165,7 +195,8 @@ def geocode_first(queries: list[str], pick: int = 0) -> tuple[Place, str]:
     if points:
         q, point, names = points[0]
         return _enclosing_area(q, point, names), q
-    raise LookupError(f"none of {queries} is a place OpenStreetMap knows; pass --place with a fuller name, or --aoi FILE")
+    raise LookupError(f"OpenStreetMap doesn't know {' or '.join(repr(q) for q in queries)} as a place. Try a fuller name "
+                      "(for example “Hiriyur, Karnataka”), or give a boundary file.")
 
 
 class _PointOnly(LookupError):
@@ -188,9 +219,10 @@ def geocode(query: str, pick: int = 0, allow_point: bool = True) -> Place:
             raise _PointOnly(results[0], [x["display_name"] for x in results])
         return _enclosing_area(query, results[0], [x["display_name"] for x in results])
     if not polys:
-        raise LookupError(f"OpenStreetMap has nothing named {query!r}; pass --place with a fuller name, or --aoi FILE")
+        raise LookupError(f"OpenStreetMap has nothing named {query!r}. Try a fuller name (for example “Hiriyur, Karnataka”), "
+                          "or give a boundary file.")
     if pick >= len(polys):
-        raise LookupError(f"only {len(polys)} area(s) match {query!r}; --pick must be < {len(polys)}")
+        raise LookupError(f"only {len(polys)} area(s) match {query!r}; choose one of the first {len(polys)} matches")
     x = polys[pick]
     alts = [f"[{i}] {p['display_name']} ({p.get('category')}/{p.get('type')})" for i, p in enumerate(polys)]
     return Place(query, x.get("name") or query, x["display_name"], f"{x.get('category')}/{x.get('type')}",
@@ -214,4 +246,4 @@ def _enclosing_area(query: str, point: dict, names: list[str]) -> Place:
                          f"({point.get('type', 'place')}, a point in OpenStreetMap)",
                          f"{d.get('category')}/{d.get('type')}", f"{d.get('osm_type')}/{d.get('osm_id')}",
                          shape(d["geojson"]).buffer(0), [f"[{i}] {n}" for i, n in enumerate(names)])
-    raise LookupError(f"{query!r} is only a point in OpenStreetMap and no enclosing area was found; pass --aoi FILE")
+    raise LookupError(f"{query!r} is only a point in OpenStreetMap and no area around it was found; give a boundary file instead")

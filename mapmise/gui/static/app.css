@@ -116,6 +116,8 @@ main { max-width: 1160px; margin: 0 auto; padding: 32px 24px 64px; }
 .chip.suggested { color: var(--blue); font-weight: 600; }
 .chip.suggested:first-child { background: var(--blue); color: #fff; box-shadow: none; }  /* one accent: the likeliest */
 .chip.suggested:first-child::before { content: "Most likely · "; font-weight: 400; opacity: .85; }
+.when-row { display: flex; gap: 10px; justify-content: center; margin: 14px 0 6px; }
+.when-row input { height: 40px; padding: 0 12px; border: .5px solid var(--separator); border-radius: var(--r-md); background: var(--bg); }
 .choose-all { margin-top: 10px; font-size: .8125rem; color: var(--label-2); }
 .choose-all summary { cursor: pointer; }
 .options { max-width: 780px; margin: 6px auto 0; animation: arrive 300ms var(--spring); }

@@ -68,3 +68,22 @@ def test_change_questions_without_dates_default_to_years_not_months(tmp_path):
     from datetime import date
     assert date.fromisoformat(r["start"]).year <= date.today().year - 10
     assert "default for urban growth" in r["period_source"]
+
+
+def test_event_questions_without_a_date_ask_when_it_happened(tmp_path):
+    aoi = _box_file(tmp_path, 77.10, 28.50, 77.30, 28.70)
+    opts = engine.Options(aoi=str(aoi), workspace=str(tmp_path / "ws"))
+    with pytest.raises(engine.NeedsEventDate) as e:
+        engine.prepare("flood here", opts, log=lambda m: None)
+    assert e.value.analysis == "Flooding" and "When did it happen" in str(e.value)
+    assert not (tmp_path / "ws").exists()  # asked before any work
+
+
+def test_lower_case_place_names_are_found():
+    from mapmise.engine import _vocabulary
+    from mapmise.understand import parse_period, place_candidates
+    v = _vocabulary()
+    for q, want in [("flood in delhi", "Delhi"), ("drought in chitradurga during the 2026 monsoon", "Chitradurga"),
+                    ("urban expansion of new delhi between 2005 and 2025", "New Delhi"), ("soil in tumakuru district", "Tumakuru District")]:
+        assert place_candidates(q, parse_period(q), v)[:1] == [want], q
+    assert place_candidates("flood in the city", None, v) == []

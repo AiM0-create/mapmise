@@ -108,7 +108,15 @@ $("opt-aoi").onchange = async (ev) => {
   try { state.aoiUpload = { name: f.name, geojson: JSON.parse(await f.text()) }; }
   catch { setError("ask-error", "That file isn't valid GeoJSON. Choose a .geojson file."); ev.target.value = ""; }
 };
-$("ask-text").addEventListener("input", () => { setError("ask-error", ""); state.rules = []; $("choose").hidden = true; });
+$("ask-text").addEventListener("input", () => {
+  setError("ask-error", ""); state.rules = []; state.noEventDate = false; $("choose").hidden = true; $("when").hidden = true;
+  if (state.eventFromWhen) { $("opt-event").value = ""; state.eventFromWhen = false; }  // that date belonged to the previous question
+});
+$("when-go").onclick = () => {
+  if (!$("when-date").value) { $("when-date").focus(); return; }
+  $("opt-event").value = $("when-date").value; state.eventFromWhen = true; $("when").hidden = true; plan();
+};
+$("when-unknown").onclick = () => { state.noEventDate = true; $("when").hidden = true; plan(); };
 $("ask-text").addEventListener("keydown", (e) => { if (e.key === "Enter") { state.use = {}; state.skip = []; plan(); } });
 $("plan-btn").onclick = () => { state.use = {}; state.skip = []; plan(); };
 document.querySelectorAll("#examples .chip").forEach((c) => (c.onclick = () => { $("ask-text").value = c.textContent; $("ask-text").focus(); }));
@@ -129,7 +137,7 @@ function showChoices(c, question) {
 async function plan(allowLarge = false) {
   const text = $("ask-text").value.trim();
   if (!text) { setError("ask-error", "Describe what you want to analyse first."); $("ask-text").focus(); return; }
-  setError("ask-error", ""); setError("plan-error", ""); $("choose").hidden = true;
+  setError("ask-error", ""); setError("plan-error", ""); $("choose").hidden = true; $("when").hidden = true;
   const btn = $("plan-btn"); btn.disabled = true; btn.textContent = "Planning…";
   const busy = $(state.replan ? "total-sub" : "ask-step");
   if (!state.replan) { $("ask-busy").hidden = false; $("ask-step").textContent = "Starting…"; $("ask-elapsed").textContent = ""; }
@@ -137,7 +145,7 @@ async function plan(allowLarge = false) {
   try {
     const body = { text, place: $("opt-place").value, event: $("opt-event").value, start: $("opt-start").value, end: $("opt-end").value,
       mode: $("opt-mode").value, project: state.prep?.project && state.replan ? state.prep.project : $("opt-project").value,
-      use: state.use, skip: state.skip, allow_large: allowLarge, rules: state.rules || [] };
+      use: state.use, skip: state.skip, allow_large: allowLarge, rules: state.rules || [], no_event_date: !!state.noEventDate };
     if (state.aoiUpload && !body.project) { body.aoi_geojson = state.aoiUpload.geojson; body.aoi_name = state.aoiUpload.name; }
     const { job } = await api("/api/prepare", body);
     state.planJob = job;
@@ -158,6 +166,10 @@ async function plan(allowLarge = false) {
     }
     if (s.kind === "cancelled") { setError("ask-error", "Planning was cancelled."); return; }
     if (s.kind === "choose") { showChoices(s.choices, text); return; }
+    if (s.kind === "event") {
+      $("when-text").textContent = `${s.analysis} compares data from just before and just after the event. Knowing the date lets Mapmise pick the right scenes.`;
+      $("when-date").max = new Date().toISOString().slice(0, 10); $("when").hidden = false; $("when-date").focus(); return;
+    }
     if (s.problem) throw new Error(s.problem);
     state.prep = s.result;
     state.prep.plans.forEach((p) => (state.names[p.source] = p.source_name));

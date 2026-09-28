@@ -42,6 +42,12 @@
       <div class="chips" id="choose-suggested"></div>
       <details class="choose-all"><summary>All analyses</summary><div class="chips" id="choose-all"></div></details>
     </div>
+    <div id="when" class="choose" hidden>
+      <p class="headline">When did it happen?</p>
+      <p class="footnote" id="when-text"></p>
+      <div class="when-row"><input type="date" id="when-date" aria-label="Event date"><button class="primary" id="when-go">Plan with this date</button></div>
+      <button class="plain" id="when-unknown">I don't know the date</button>
+    </div>
     <div id="ask-busy" class="busy" hidden><span class="spinner" aria-hidden="true"></span><span id="ask-step">Starting…</span><span class="caption num" id="ask-elapsed"></span><button class="plain" id="plan-cancel" style="padding:4px 10px">Cancel</button></div>
     <div class="chips" id="examples">
       <button class="chip">Agricultural drought in Chitradurga during the 2026 monsoon</button>
