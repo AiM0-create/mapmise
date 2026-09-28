@@ -117,3 +117,31 @@ def test_file_names_are_valid_on_every_os():
     from mapmise.geo import safe_name
     assert safe_name('a:b/c\\d*e?f"g<h>i|j') == "a_b_c_d_e_f_g_h_i_j"
     assert safe_name("S2B_MSIL2A_20260612.tif") == "S2B_MSIL2A_20260612.tif"
+
+
+def test_valid_share_counts_only_pixels_inside_the_area(tmp_path):
+    from shapely.geometry import box as sbox
+    from mapmise.run import valid_fraction
+    f = tmp_path / "v.tif"
+    data = np.full((100, 100), 7, dtype="uint8")
+    data[:, 50:] = 255  # right half has no data
+    with rasterio.open(f, "w", driver="GTiff", width=100, height=100, count=1, dtype="uint8", crs="EPSG:32643",
+                       transform=from_origin(700000, 1600000, 10, 10), nodata=255) as ds:
+        ds.write(data, 1)
+    t = Transformer.from_crs("EPSG:32643", "EPSG:4326", always_xy=True)
+    left_half = sbox(*t.transform(700000, 1599000), *t.transform(700500, 1600000))
+    assert valid_fraction(f) == 0.5
+    assert valid_fraction(f, left_half) > 0.99  # the area lies entirely in the valid half
+
+
+def test_vector_layers_are_written_in_the_project_projection(tmp_path, monkeypatch):
+    import geopandas as gpd
+    from shapely.geometry import LineString
+    from mapmise.drivers import overpass
+    monkeypatch.setattr(overpass, "run_query", lambda q: [])
+    monkeypatch.setattr(overpass, "to_gdf", lambda els, geom: gpd.GeoDataFrame(
+        {"osm_id": [1]}, geometry=[LineString([(76.5, 14.0), (76.6, 14.1)])], crs="EPSG:4326"))
+    from mapmise.registry import load_sources
+    from shapely.geometry import box as sbox
+    out, n = overpass.fetch(load_sources()["osm-roads"], sbox(76.4, 13.9, 76.7, 14.2), tmp_path / "r.gpkg", 32643)
+    assert n == 1 and gpd.read_file(out).crs.to_epsg() == 32643

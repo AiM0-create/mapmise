@@ -93,6 +93,21 @@ def gaps(project: Project, plan: dict) -> list[dict]:
             for e in plan["acquire"] for k in e["assets"] if not cat.has_asset(e["item_id"], k)]
 
 
+def valid_fraction(path: Path, aoi=None) -> float:
+    """Share of the area's pixels holding a real value (not no-data): 0 means the file is empty over the area.
+    Pixels outside the area (the corners of its bounding box) are not counted — they are empty by design."""
+    import rasterio
+    from rasterio.features import geometry_mask
+    from rasterio.warp import transform_geom
+    from shapely.geometry import mapping
+    with rasterio.open(path) as ds:
+        valid = ds.read_masks(1) > 0
+        inside = ~geometry_mask([transform_geom("EPSG:4326", ds.crs, mapping(aoi))], valid.shape, ds.transform) if aoi is not None else None
+    if inside is None or not inside.any():
+        return round(float(valid.mean()), 4) if valid.size else 0.0
+    return round(float(valid[inside].mean()), 4)
+
+
 def _out(project: Project, source: Source, e: dict, key: str, ext: str) -> Path:
     from mapmise.geo import safe_name
     return project.root / "data" / source.id / safe_name(e["window"]) / safe_name(f"{e['item_id']}_{key}{ext}")
@@ -132,9 +147,9 @@ def execute(project: Project, plan: dict, threads: int = 12, progress: Callable[
                     out = _out(project, source, e, key, ".gpkg")
                     t0 = datetime.now()
                     if source.driver == "overpass":
-                        _with_retry(lambda: overpass_driver.fetch(source, aoi.geometry, out), attempts=2)
+                        _with_retry(lambda: overpass_driver.fetch(source, aoi.geometry, out, epsg), attempts=2)
                     else:
-                        _with_retry(lambda: http_driver.fetch_vector(source, aoi.geometry, out, project.meta.country_iso3))
+                        _with_retry(lambda: http_driver.fetch_vector(source, aoi.geometry, out, project.meta.country_iso3, epsg))
                     assets_done[key] = {"path": out, "media_type": GPKG_TYPE, "size": out.stat().st_size, "sha256": sha256_of(out),
                                         "source_href": a["href"], "seconds": (datetime.now() - t0).total_seconds()}
                 elif plan["kind"] == "file_series" or e.get("whole_file"):
@@ -156,8 +171,13 @@ def execute(project: Project, plan: dict, threads: int = 12, progress: Callable[
                     assets_done[key] = {"path": out, "media_type": COG_TYPE, "size": r.output_bytes, "sha256": r.sha256, "source_href": a["href"],
                                         "seconds": r.seconds, "shape": [r.height, r.width], "native_grid": r.native_grid and not held,
                                         "reused_from": str(held.path) if held else None}
+                if out.suffix == ".tif":
+                    assets_done[key]["valid_fraction"] = valid = valid_fraction(out, aoi.geometry)
+                    if valid == 0:
+                        progress(f"  ↳ {out.name} has no valid pixels over your area (cloud, or no observation)")
                 done += 1
                 _record(project, plan, {"item": e["item_id"], "asset": key, "status": "ok", "path": out.relative_to(project.root).as_posix(),
+                                        **({"valid_fraction": assets_done[key]["valid_fraction"]} if "valid_fraction" in assets_done[key] else {}),
                                         **({"reused_from": assets_done[key]["reused_from"]} if assets_done[key].get("reused_from") else {}),
                                         "bytes": assets_done[key]["size"], "sha256": assets_done[key]["sha256"], "seconds": round(assets_done[key]["seconds"], 1)})
             except Exception as ex:  # noqa: BLE001 — record and continue; the plan shows what failed

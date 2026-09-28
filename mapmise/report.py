@@ -14,6 +14,11 @@ def _mb(n: int) -> str:
     return f"{n / 1e6:,.1f} MB"
 
 
+def _valid(t: dict) -> str:
+    v = t.get("valid_fraction")
+    return "—" if v is None else f"{100 * v:.0f}%"
+
+
 def write_report(p: Project) -> Path:
     sources = load_sources()
     cat = Catalog(p.root, p.meta.name)
@@ -56,10 +61,14 @@ def write_report(p: Project) -> Path:
             done_keys = {(t["item"], t["asset"]) for t in log if t["status"] == "ok"}
             tr = [t for t in log if t["status"] == "ok"]
             if tr:
-                L += ["", "| file | bytes | sha256 | obtained |", "|---|---|---|---|"] + [
-                    f"| `{t['path']}` | {t['bytes']:,} | `{t['sha256'][:16]}…` | "
+                L += ["", "| file | bytes | valid pixels | sha256 | obtained |", "|---|---|---|---|---|"] + [
+                    f"| `{t['path']}` | {t['bytes']:,} | {_valid(t)} | `{t['sha256'][:16]}…` | "
                     + (f"re-clipped from your library: `{Path(t['reused_from']).parent.parent.parent.parent.name}/…/{Path(t['reused_from']).name}` (same source grid) |" if t.get("reused_from") else "downloaded |")
                     for t in tr]
+            empty = [t for t in tr if t.get("valid_fraction") == 0]
+            if empty:
+                L += ["", f"{len(empty)} file(s) have no valid pixels over the area (cloud or no observation on that date); they "
+                      "are kept for completeness:"] + [f"- `{t['path']}`" for t in empty]
             fails = list({(t["item"], t["asset"]): t for t in log if t["status"] != "ok" and (t["item"], t["asset"]) not in done_keys}.values())
             if fails:
                 L += ["", "Still missing (retry with `mapmise run`):"] + [f"- {t['item']} {t['asset']}: {t['error']}" for t in fails]

@@ -60,11 +60,13 @@ def to_gdf(elements: list[dict], geometry: str) -> gpd.GeoDataFrame:
     return gpd.GeoDataFrame(rows, geometry="geometry", crs="EPSG:4326") if rows else gpd.GeoDataFrame(geometry=[], crs="EPSG:4326")
 
 
-def fetch(source: Source, aoi: BaseGeometry, out: Path) -> tuple[Path, int]:
+def fetch(source: Source, aoi: BaseGeometry, out: Path, epsg: int | None = None) -> tuple[Path, int]:
     els = run_query(build_query(source, list(aoi.bounds)))
     gdf = to_gdf(els, source.access.get("geometry", "line"))
     if len(gdf):
         gdf = gpd.clip(gdf, aoi)
+    if epsg:  # the same projection as every raster in the project
+        gdf = gdf.to_crs(epsg)
     out.parent.mkdir(parents=True, exist_ok=True)
     gdf.to_file(out, driver="GPKG")
     return out, len(gdf)

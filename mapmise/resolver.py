@@ -111,12 +111,14 @@ def resolve_needs(needs: list[Need], bbox: list[float], start: str, end: str, is
     out = []
     for need in needs:
         cands: list[Candidate] = []
+        outside: list[Source] = []  # sources that would fit but are not published for the requested period
         for s in sources.values():
             if need.theme not in s.themes or not _compatible_shape(need, s) or s.kind == "event":
                 continue
             if not s.covers_bbox(bbox, iso3):
                 continue
             if need.temporal != "static" and not s.covers_period(start, end):
+                outside.append(s)
                 continue
             reasons = [f"theme '{need.theme}', {s.shape} data"]
             full = need.temporal == "static" or s.covers_full_period(start, end)
@@ -160,6 +162,11 @@ def resolve_needs(needs: list[Need], bbox: list[float], start: str, end: str, is
         elif cands:
             unmet = (f"available from {cands[0].source.name} with a free NASA Earthdata token — add one in Settings "
                      "or with: mapmise earthdata login")
+        elif outside:
+            o = outside[0]
+            span = f"{o.temporal.get('from')} to {o.temporal.get('to') or 'now'}"
+            unmet = (f"{o.name} is published only from {span}, which does not overlap {start[:7]}…{end[:7]}; "
+                     f"ask about a period within {span}")
         else:
             unmet = f"no registered source with theme '{need.theme}' for {need.temporal} data over this area/period"
         out.append(Resolution(need, chosen, cands, unmet))

@@ -82,6 +82,8 @@ class Catalog:
                 extra["mapmise:native_grid"] = bool(a["native_grid"])
             if a.get("reused_from"):
                 extra["mapmise:reused_from"] = a["reused_from"]
+            if a.get("valid_fraction") is not None:
+                extra["mapmise:valid_fraction"] = a["valid_fraction"]
             item.add_asset(key, pystac.Asset(href=self._rel(Path(a["path"])), media_type=a["media_type"], roles=["data"], extra_fields=extra))
         item.stac_extensions = ["https://stac-extensions.github.io/file/v2.1.0/schema.json",
                                 "https://stac-extensions.github.io/projection/v1.1.0/schema.json"]

@@ -57,7 +57,7 @@ def download_file(url: str, dest: Path) -> Path:
     return dest
 
 
-def fetch_vector(source: Source, aoi: BaseGeometry, out: Path, iso3: str | None) -> Path:
+def fetch_vector(source: Source, aoi: BaseGeometry, out: Path, iso3: str | None, epsg: int | None = None) -> Path:
     a = source.access
     url = render_url(a["url"], iso3=iso3)
     if a.get("url_key"):
@@ -68,6 +68,8 @@ def fetch_vector(source: Source, aoi: BaseGeometry, out: Path, iso3: str | None)
     r.raise_for_status()
     gdf = gpd.GeoDataFrame.from_features(r.json()["features"], crs="EPSG:4326")
     clipped = gpd.clip(gdf, aoi)
+    if epsg:  # the same projection as every raster in the project
+        clipped = clipped.to_crs(epsg)
     out.parent.mkdir(parents=True, exist_ok=True)
     clipped.to_file(out, driver="GPKG")
     return out
